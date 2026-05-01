@@ -1,54 +1,56 @@
 import { HOLDING_COST, BACKLOG_COST, LEAD_TIME, TIERS } from './gameState';
 
-/**
- * Run one complete round.
- */
 export function advanceRound(state, orders, demand) {
   const next = deepCopy(state);
   next.round += 1;
   next.demandHistory.push(demand);
 
-  // Step 1: Receive shipments and fill orders (downstream to upstream)
+  // Step 1: Receive shipments and fill downstream demand
   TIERS.forEach((tierName, i) => {
     const tier = next.tiers[tierName];
 
-    // Receive shipment arriving this round
+    // 1a. Receive shipment that's arriving this round
     const arriving = tier.incomingShipments.shift() || 0;
-    tier.incomingShipments.push(0);
+    tier.incomingShipments.push(0); // keep array length = 2
     tier.inventory += arriving;
     tier.lastOrderReceived = arriving;
 
-    // Demand on this tier
-    const demandOnTier = (i === 0) ? demand : orders[TIERS[i - 1]];
+    // 1b. Figure out how much downstream needs from me
+    const demandOnMe = (i === 0) ? demand : (orders[TIERS[i - 1]] || 0);
 
-    // Fill orders
-    const totalObligation = demandOnTier + tier.backlog;
-    const shipped = Math.min(tier.inventory, totalObligation);
-    tier.inventory -= shipped;
-    tier.backlog = totalObligation - shipped;
+    // 1c. Try to fill orders (current demand + any backlog)
+    const totalNeed = demandOnMe + tier.backlog;
+    const canDeliver = Math.min(tier.inventory, totalNeed);
+    tier.inventory -= canDeliver;
+    tier.backlog = totalNeed - canDeliver;
 
-    // Calculate costs
+    // 1d. Calculate costs
     tier.totalCost += (tier.inventory * HOLDING_COST) + (tier.backlog * BACKLOG_COST);
     tier.inventoryHistory.push(tier.inventory);
   });
 
-  // Step 2: Place orders upstream (downstream to upstream)
+  // Step 2: Each tier places their order, supplier prepares shipment
   TIERS.forEach((tierName, i) => {
     const tier = next.tiers[tierName];
-    const qty = orders[tierName] ?? 0;
+    const myOrder = orders[tierName] || 0;
 
-    tier.lastOrderPlaced = qty;
-    tier.orderHistory.push(qty);
+    tier.lastOrderPlaced = myOrder;
+    tier.orderHistory.push(myOrder);
 
-    if (i < TIERS.length - 1) {
-      // Order from supplier (next tier up)
-      const supplier = next.tiers[TIERS[i + 1]];
-      const canShip = Math.min(qty, supplier.inventory);
-      supplier.inventory -= canShip;
-      tier.incomingShipments[LEAD_TIME - 1] += canShip;
+    // Now: who fulfills my order?
+    if (i === TIERS.length - 1) {
+      // I'm the manufacturer - I produce whatever I ordered (unlimited capacity)
+      tier.incomingShipments[LEAD_TIME - 1] += myOrder;
     } else {
-      // Manufacturer produces unlimited
-      tier.inventory += qty;  // Instant production
+      // I order from the tier above me (my supplier)
+      const mySupplier = next.tiers[TIERS[i + 1]];
+      
+      // Supplier ships what they can (limited by their inventory)
+      const theyCanShip = Math.min(myOrder, mySupplier.inventory);
+      mySupplier.inventory -= theyCanShip;
+      
+      // That shipment goes into MY pipeline (arrives in LEAD_TIME rounds)
+      tier.incomingShipments[LEAD_TIME - 1] += theyCanShip;
     }
   });
 
