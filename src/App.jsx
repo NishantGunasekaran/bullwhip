@@ -16,7 +16,7 @@ function App() {
           <img src={viteLogo} className="vite" alt="Vite logo" />
         </div>
         <div>
-          <h1>Nishant's Bullwhip Effect Simulator - Coming Soooooon</h1>
+          <h1>Bullwhip Effect Simulator - Coming Soon</h1>
           <p>
             Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
           </p>
