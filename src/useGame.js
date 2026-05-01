@@ -8,9 +8,12 @@ export function useGame() {
 
   // Called when a player types their order quantity
   const setOrder = useCallback((tierName, qty) => {
+    const numQty = Number(qty);
+    const validQty = isNaN(numQty) ? 0 : Math.max(0, numQty);
+    
     setGame(prev => ({
       ...prev,
-      pendingOrders: { ...prev.pendingOrders, [tierName]: Number(qty) }
+      pendingOrders: { ...prev.pendingOrders, [tierName]: validQty }
     }));
   }, []);
 
