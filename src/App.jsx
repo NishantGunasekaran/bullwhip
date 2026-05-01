@@ -96,7 +96,7 @@ function App() {
                       </strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', margin: '0.25rem 0' }}>
-                      <span>Incoming:</span>
+                      <span>Incoming next round:</span>
                       <strong>{tier.incomingShipments[0]}</strong>
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', margin: '0.25rem 0' }}>
