@@ -5,54 +5,58 @@ export function advanceRound(state, orders, demand) {
   next.round += 1;
   next.demandHistory.push(demand);
 
-  // Step 1: Receive shipments and fill downstream demand
+  // Step 1: Process incoming shipments and fulfill demand
   TIERS.forEach((tierName, i) => {
     const tier = next.tiers[tierName];
 
-    // 1a. Receive shipment that's arriving this round
+    // Receive incoming shipment
     const arriving = tier.incomingShipments.shift() || 0;
-    tier.incomingShipments.push(0); // keep array length = 2
+    tier.incomingShipments.push(0);
     tier.inventory += arriving;
     tier.lastOrderReceived = arriving;
 
-    // 1b. Figure out how much downstream needs from me
-    const demandOnMe = (i === 0) ? demand : (orders[TIERS[i - 1]] || 0);
+    // Determine demand on this tier
+    const demandOnTier = (i === 0) ? demand : (orders[TIERS[i - 1]] || 0);
 
-    // 1c. Try to fill orders (current demand + any backlog)
-    const totalNeed = demandOnMe + tier.backlog;
-    const canDeliver = Math.min(tier.inventory, totalNeed);
-    tier.inventory -= canDeliver;
-    tier.backlog = totalNeed - canDeliver;
+    // Fulfill demand (current + backlog)
+    const totalDemand = demandOnTier + tier.backlog;
+    const fulfilled = Math.min(tier.inventory, totalDemand);
+    tier.inventory -= fulfilled;
+    tier.backlog = totalDemand - fulfilled;
 
-    // 1d. Calculate costs
+    // Calculate costs
     tier.totalCost += (tier.inventory * HOLDING_COST) + (tier.backlog * BACKLOG_COST);
     tier.inventoryHistory.push(tier.inventory);
   });
 
-  // Step 2: Each tier places their order, supplier prepares shipment
-  TIERS.forEach((tierName, i) => {
+  // Step 2: Process orders - each tier orders from upstream
+  // Key: Process in REVERSE order (manufacturer first, then wholesaler, etc.)
+  // This way upstream tiers can ship immediately based on current inventory
+  for (let i = TIERS.length - 1; i >= 0; i--) {
+    const tierName = TIERS[i];
     const tier = next.tiers[tierName];
-    const myOrder = orders[tierName] || 0;
+    const orderQty = orders[tierName] || 0;
 
-    tier.lastOrderPlaced = myOrder;
-    tier.orderHistory.push(myOrder);
+    tier.lastOrderPlaced = orderQty;
+    tier.orderHistory.push(orderQty);
 
-    // Now: who fulfills my order?
     if (i === TIERS.length - 1) {
-      // I'm the manufacturer - I produce whatever I ordered (unlimited capacity)
-      tier.incomingShipments[LEAD_TIME - 1] += myOrder;
+      // Manufacturer - unlimited production capacity
+      // Add to pipeline (will arrive in LEAD_TIME rounds)
+      tier.incomingShipments[LEAD_TIME - 1] += orderQty;
     } else {
-      // I order from the tier above me (my supplier)
-      const mySupplier = next.tiers[TIERS[i + 1]];
-      
-      // Supplier ships what they can (limited by their inventory)
-      const theyCanShip = Math.min(myOrder, mySupplier.inventory);
-      mySupplier.inventory -= theyCanShip;
-      
-      // That shipment goes into MY pipeline (arrives in LEAD_TIME rounds)
-      tier.incomingShipments[LEAD_TIME - 1] += theyCanShip;
+      // All other tiers order from upstream supplier
+      const supplierName = TIERS[i + 1];
+      const supplier = next.tiers[supplierName];
+
+      // Supplier ships based on current inventory (after they received their shipment)
+      const canShip = Math.min(orderQty, supplier.inventory);
+      supplier.inventory -= canShip;
+
+      // Add to this tier's pipeline
+      tier.incomingShipments[LEAD_TIME - 1] += canShip;
     }
-  });
+  }
 
   next.phase = (next.round >= 20) ? 'gameover' : 'ordering';
   next.pendingOrders = {};
