@@ -8,7 +8,14 @@ function App() {
   return (
     <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
       <h1>Bullwhip Supply Chain Game</h1>
-      
+      {/* Debug info - remove this later */}
+      <div style={{ background: '#fff3cd', padding: '1rem', marginBottom: '1rem', fontSize: '12px', fontFamily: 'monospace' }}>
+        <div><strong>Debug - Pending Orders:</strong> {JSON.stringify(game.pendingOrders)}</div>
+        <div><strong>Last Orders Placed:</strong></div>
+        {TIERS.map(t => (
+          <div key={t}>{t}: {game.tiers[t].lastOrderPlaced} | Pipeline: [{game.tiers[t].incomingShipments.join(', ')}]</div>
+        ))}
+      </div>
       <div style={{ 
         display: 'flex', 
         gap: '1rem', 
