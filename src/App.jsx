@@ -1,122 +1,147 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useGame } from './useGame';
+import { TIERS } from './gameState';
+import './App.css';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const { game, setOrder, submitRound, resetGame, totalSystemCost } = useGame();
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
+      <h1>Bullwhip Supply Chain Game</h1>
+      
+      <div style={{ 
+        display: 'flex', 
+        gap: '1rem', 
+        marginBottom: '2rem',
+        padding: '1rem',
+        background: '#f5f5f5',
+        borderRadius: '8px'
+      }}>
+        <div>
+          <strong>Round:</strong> {game.round} / 20
         </div>
         <div>
-          <h1>Bullwhip Effect Simulator - Coming Soon</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
+          <strong>Total System Cost:</strong> ₹{Math.round(totalSystemCost)}
+        </div>
+        <div>
+          <strong>Phase:</strong> {game.phase}
+        </div>
+      </div>
+
+      {game.phase === 'gameover' ? (
+        <div style={{ textAlign: 'center', padding: '3rem' }}>
+          <h2>Game Over!</h2>
+          <p style={{ fontSize: '24px', margin: '1rem 0' }}>
+            Total System Cost: ₹{Math.round(totalSystemCost)}
           </p>
+          <button 
+            onClick={resetGame}
+            style={{
+              padding: '12px 24px',
+              fontSize: '16px',
+              background: '#0070f3',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer'
+            }}
+          >
+            Play Again
+          </button>
         </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Number of Rounds played: {count}
-        </button>
-      </section>
+      ) : (
+        <>
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+            gap: '1rem',
+            marginBottom: '2rem'
+          }}>
+            {TIERS.map(tierName => {
+              const tier = game.tiers[tierName];
+              return (
+                <div 
+                  key={tierName}
+                  style={{
+                    border: '1px solid #ddd',
+                    borderRadius: '8px',
+                    padding: '1rem',
+                    background: 'white'
+                  }}
+                >
+                  <h3 style={{ 
+                    marginTop: 0, 
+                    textTransform: 'capitalize',
+                    color: '#333'
+                  }}>
+                    {tierName}
+                  </h3>
+                  
+                  <div style={{ marginBottom: '0.75rem', fontSize: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', margin: '0.25rem 0' }}>
+                      <span>Inventory:</span>
+                      <strong>{tier.inventory}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', margin: '0.25rem 0' }}>
+                      <span>Backlog:</span>
+                      <strong style={{ color: tier.backlog > 0 ? '#e00' : '#333' }}>
+                        {tier.backlog}
+                      </strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', margin: '0.25rem 0' }}>
+                      <span>Incoming:</span>
+                      <strong>{tier.incomingShipments[0]}</strong>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', margin: '0.25rem 0' }}>
+                      <span>Cost:</span>
+                      <strong>₹{Math.round(tier.totalCost)}</strong>
+                    </div>
+                  </div>
 
-      <div className="ticks"></div>
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '14px' }}>
+                      Order quantity:
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="Enter order"
+                      value={game.pendingOrders[tierName] ?? ''}
+                      onChange={(e) => setOrder(tierName, e.target.value)}
+                      style={{
+                        width: '100%',
+                        padding: '8px',
+                        fontSize: '14px',
+                        border: '1px solid #ddd',
+                        borderRadius: '4px'
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+          <button
+            onClick={submitRound}
+            style={{
+              width: '100%',
+              padding: '16px',
+              fontSize: '18px',
+              fontWeight: '600',
+              background: '#0070f3',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer'
+            }}
+          >
+            Submit Round {game.round + 1}
+          </button>
+        </>
+      )}
+    </div>
+  );
 }
 
-export default App
+export default App;
