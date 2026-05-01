@@ -11,7 +11,7 @@ export const TOTAL_ROUNDS = 20;
 export function createTierState(name) {
   return {
     name,
-    inventory:    100,   // units on hand right now
+    inventory:    16,   // units on hand right now
     backlog:       0,   // unfilled orders owed to downstream
     incomingShipments: [0, 0], // pipeline: [arrives next round, round after]
     lastOrderPlaced:  4,   // what this tier ordered last round
