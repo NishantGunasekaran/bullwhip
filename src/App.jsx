@@ -1,152 +1,174 @@
+import { useState } from 'react';
 import { useGame } from './useGame';
 import { TIERS } from './gameState';
+import { WelcomeScreen } from './WelcomeScreen';
+import { GameOverScreen } from './GameOverScreen';
+import { BullwhipChart } from './BullwhipChart';
 import './App.css';
 
 function App() {
+  const [gameStarted, setGameStarted] = useState(false);
   const { game, setOrder, submitRound, resetGame, totalSystemCost } = useGame();
 
+  const handleReset = () => {
+    resetGame();
+    setGameStarted(false);
+  };
+
+  // Welcome screen
+  if (!gameStarted) {
+    return <WelcomeScreen onStart={() => setGameStarted(true)} />;
+  }
+
+  // Game over screen
+  if (game.phase === 'gameover') {
+    return <GameOverScreen game={game} resetGame={handleReset} totalSystemCost={totalSystemCost} />;
+  }
+
+  // Active gameplay
   return (
     <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
-      <h1>Bullwhip Supply Chain Game</h1>
-      {/* Debug info - remove this later */}
-      <div style={{ background: '#fff3cd', padding: '1rem', marginBottom: '1rem', fontSize: '12px', fontFamily: 'monospace' }}>
-        <div><strong>Debug - Pending Orders:</strong> {JSON.stringify(game.pendingOrders)}</div>
-        <div><strong>Last Orders Placed:</strong></div>
-        {TIERS.map(t => (
-          <div key={t}>{t}: {game.tiers[t].lastOrderPlaced} | Pipeline: [{game.tiers[t].incomingShipments.join(', ')}]</div>
-        ))}
-      </div>
+      <h1 style={{ marginBottom: '0.5rem' }}>Bullwhip Supply Chain Game</h1>
+      <p style={{ color: '#6b7280', marginBottom: '2rem', fontSize: '14px' }}>
+        Manage your supply chain tier and minimize system costs
+      </p>
+      
       <div style={{ 
         display: 'flex', 
-        gap: '1rem', 
+        gap: '2rem', 
         marginBottom: '2rem',
         padding: '1rem',
-        background: '#f5f5f5',
-        borderRadius: '8px'
+        background: '#f9fafb',
+        borderRadius: '8px',
+        flexWrap: 'wrap'
       }}>
         <div>
-          <strong>Round:</strong> {game.round} / 20
+          <div style={{ fontSize: '12px', color: '#6b7280' }}>Round</div>
+          <div style={{ fontSize: '20px', fontWeight: '600' }}>{game.round} / 20</div>
         </div>
         <div>
-          <strong>Total System Cost:</strong> ₹{Math.round(totalSystemCost)}
+          <div style={{ fontSize: '12px', color: '#6b7280' }}>Customer Demand</div>
+          <div style={{ fontSize: '20px', fontWeight: '600' }}>
+            {game.demandHistory[game.round - 1] || 0}
+          </div>
         </div>
         <div>
-          <strong>Phase:</strong> {game.phase}
+          <div style={{ fontSize: '12px', color: '#6b7280' }}>Total System Cost</div>
+          <div style={{ fontSize: '20px', fontWeight: '600', color: '#ef4444' }}>
+            ₹{Math.round(totalSystemCost)}
+          </div>
         </div>
       </div>
 
-      {game.phase === 'gameover' ? (
-        <div style={{ textAlign: 'center', padding: '3rem' }}>
-          <h2>Game Over!</h2>
-          <p style={{ fontSize: '24px', margin: '1rem 0' }}>
-            Total System Cost: ₹{Math.round(totalSystemCost)}
-          </p>
-          <button 
-            onClick={resetGame}
-            style={{
-              padding: '12px 24px',
-              fontSize: '16px',
-              background: '#0070f3',
-              color: 'white',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer'
-            }}
-          >
-            Play Again
-          </button>
-        </div>
-      ) : (
-        <>
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-            gap: '1rem',
-            marginBottom: '2rem'
-          }}>
-            {TIERS.map(tierName => {
-              const tier = game.tiers[tierName];
-              return (
-                <div 
-                  key={tierName}
-                  style={{
-                    border: '1px solid #ddd',
-                    borderRadius: '8px',
-                    padding: '1rem',
-                    background: 'white'
-                  }}
-                >
-                  <h3 style={{ 
-                    marginTop: 0, 
-                    textTransform: 'capitalize',
-                    color: '#333'
-                  }}>
-                    {tierName}
-                  </h3>
-                  
-                  <div style={{ marginBottom: '0.75rem', fontSize: '14px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', margin: '0.25rem 0' }}>
-                      <span>Inventory:</span>
-                      <strong>{tier.inventory}</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', margin: '0.25rem 0' }}>
-                      <span>Backlog:</span>
-                      <strong style={{ color: tier.backlog > 0 ? '#e00' : '#333' }}>
-                        {tier.backlog}
-                      </strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', margin: '0.25rem 0' }}>
-                      <span>Incoming next round:</span>
-                      <strong>{tier.incomingShipments[0]}</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', margin: '0.25rem 0' }}>
-                      <span>Cost:</span>
-                      <strong>₹{Math.round(tier.totalCost)}</strong>
+      <div style={{ 
+        display: 'grid', 
+        gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+        gap: '1rem',
+        marginBottom: '2rem'
+      }}>
+        {TIERS.map(tierName => {
+          const tier = game.tiers[tierName];
+          return (
+            <div 
+              key={tierName}
+              style={{
+                border: '1px solid #e5e7eb',
+                borderRadius: '12px',
+                padding: '1.25rem',
+                background: 'white'
+              }}
+            >
+              <h3 style={{ 
+                marginTop: 0, 
+                textTransform: 'capitalize',
+                fontSize: '16px',
+                fontWeight: '600',
+                marginBottom: '1rem'
+              }}>
+                {tierName}
+              </h3>
+              
+              <div style={{ marginBottom: '1rem', fontSize: '13px' }}>
+                <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: '0.5rem'
+                }}>
+                  <div>
+                    <div style={{ color: '#6b7280', fontSize: '11px' }}>Inventory</div>
+                    <div style={{ fontWeight: '600', fontSize: '18px' }}>{tier.inventory}</div>
+                  </div>
+                  <div>
+                    <div style={{ color: '#6b7280', fontSize: '11px' }}>Backlog</div>
+                    <div style={{ 
+                      fontWeight: '600', 
+                      fontSize: '18px',
+                      color: tier.backlog > 0 ? '#ef4444' : '#10b981'
+                    }}>
+                      {tier.backlog}
                     </div>
                   </div>
-
                   <div>
-                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '14px' }}>
-                      Order quantity:
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      placeholder="Enter order"
-                      value={game.pendingOrders[tierName] ?? ''}
-                      onChange={(e) => setOrder(tierName, e.target.value)}
-                      style={{
-                        width: '100%',
-                        padding: '8px',
-                        fontSize: '14px',
-                        border: '1px solid #ddd',
-                        borderRadius: '4px'
-                      }}
-                    />
+                    <div style={{ color: '#6b7280', fontSize: '11px' }}>Arriving Next</div>
+                    <div style={{ fontWeight: '600', fontSize: '16px' }}>{tier.incomingShipments[0]}</div>
+                  </div>
+                  <div>
+                    <div style={{ color: '#6b7280', fontSize: '11px' }}>Cost</div>
+                    <div style={{ fontWeight: '600', fontSize: '16px' }}>₹{Math.round(tier.totalCost)}</div>
                   </div>
                 </div>
-              );
-            })}
-          </div>
+              </div>
 
-          <button
-            onClick={submitRound}
-            style={{
-              width: '100%',
-              padding: '16px',
-              fontSize: '18px',
-              fontWeight: '600',
-              background: '#0070f3',
-              color: 'white',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer'
-            }}
-          >
-            Submit Round {game.round + 1}
-          </button>
-        </>
-      )}
+              <div>
+                <label style={{ 
+                  display: 'block', 
+                  marginBottom: '0.5rem', 
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  color: '#374151'
+                }}>
+                  Order quantity:
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="Enter order"
+                  value={game.pendingOrders[tierName] ?? ''}
+                  onChange={(e) => setOrder(tierName, e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    fontSize: '14px',
+                    border: '1px solid #d1d5db',
+                    borderRadius: '6px',
+                    fontFamily: 'inherit'
+                  }}
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <button
+        onClick={submitRound}
+        style={{
+          width: '100%',
+          padding: '16px',
+          fontSize: '16px',
+          fontWeight: '600',
+          background: '#0070f3',
+          color: 'white',
+          border: 'none',
+          borderRadius: '8px',
+          cursor: 'pointer',
+          marginBottom: '2rem'
+        }}
+      >
+        Submit Round {game.round + 1}
+      </button>
+
+      {game.round > 2 && <BullwhipChart game={game} />}
     </div>
   );
 }
