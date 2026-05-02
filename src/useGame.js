@@ -2,8 +2,9 @@ import { useState, useCallback } from 'react';
 import { createInitialGameState, TIERS } from './gameState';
 import { advanceRound } from './roundEngine';
 import { getDemandForRound } from './demandCurve';
+import { fillGhostOrders } from './ghostPlayer';
 
-export function useGame() {
+export function useGame(playerRole = null) {
   const [game, setGame] = useState(createInitialGameState);
 
   const setOrder = useCallback((tierName, qty) => {
@@ -17,11 +18,20 @@ export function useGame() {
 
   const submitRound = useCallback(() => {
     setGame(prev => {
-      const orders = fillMissingOrders(prev);
       const demand = getDemandForRound(prev.round);
+
+      let orders;
+      if (playerRole) {
+        // Solo mode: fill ghost orders for all non-player tiers
+        orders = fillGhostOrders(prev, playerRole, prev.pendingOrders);
+      } else {
+        // Full manual mode: fill missing orders with heuristic
+        orders = fillMissingOrders(prev);
+      }
+
       return advanceRound(prev, orders, demand);
     });
-  }, []);
+  }, [playerRole]);
 
   const resetGame = useCallback(() => {
     setGame(createInitialGameState());
@@ -36,7 +46,6 @@ export function useGame() {
 
 function fillMissingOrders(game) {
   const TARGET_INVENTORY = 12;
-  // If target-based auto is 0 (flush stock), still use baseline 4 so the chain ships; typed 0 is explicit via pending.
   const STEADY_ORDER = 4;
   return Object.fromEntries(
     TIERS.map(t => {
