@@ -230,6 +230,7 @@ function App() {
       <MultiplayerLobby
         session={session}
         player={player}
+        isCreator={gameConfig?.isCreator ?? false}
         onGameStart={({ ghostRoles: gr }) => {
           setGameConfig(prev => ({ ...prev, ghostRoles: gr }));
           setMultiplayerState('playing');

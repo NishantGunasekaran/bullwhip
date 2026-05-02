@@ -24,7 +24,7 @@ const ROLE_BLURB = {
   factory: 'Production & lead time',
 };
 
-export function MultiplayerLobby({ session, player, onGameStart, onJoinAsPlayer }) {
+export function MultiplayerLobby({ session, player, onGameStart, onJoinAsPlayer, isCreator }) {
   const [players, setPlayers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
@@ -33,7 +33,11 @@ export function MultiplayerLobby({ session, player, onGameStart, onJoinAsPlayer 
   const [joinError, setJoinError] = useState(null);
   const [showJoinSection, setShowJoinSection] = useState(false);
 
+  // isCreator = created the session (always true for the person who made it)
+  // isInstructor = no player role yet (pure observer)
+  // Both can start the game
   const isInstructor = !player;
+  const canStartGame = isCreator || isInstructor;
 
   useEffect(() => {
     const load = async () => {
@@ -182,7 +186,7 @@ export function MultiplayerLobby({ session, player, onGameStart, onJoinAsPlayer 
         </div>
 
         {/* Instructor: join as a player */}
-        {isInstructor && (
+        {canStartGame && !player && (
           <div className="ma-welcome-card">
             <div style={{
               display: 'flex',
@@ -354,7 +358,7 @@ export function MultiplayerLobby({ session, player, onGameStart, onJoinAsPlayer 
         )}
 
         {/* Ghost roles notice */}
-        {ghostRoles.length > 0 && isInstructor && (
+        {ghostRoles.length > 0 && canStartGame && (
           <div style={{
             background: '#fffbeb',
             border: '1px solid #fde68a',
@@ -372,7 +376,7 @@ export function MultiplayerLobby({ session, player, onGameStart, onJoinAsPlayer 
         )}
 
         {/* Your role indicator for players */}
-        {player && (
+        {player && isCreator && (
           <div style={{
             background: `${ROLE_COLOR[player.role]}15`,
             border: `1px solid ${ROLE_COLOR[player.role]}`,
@@ -381,19 +385,19 @@ export function MultiplayerLobby({ session, player, onGameStart, onJoinAsPlayer 
             textAlign: 'center',
             fontSize: '14px'
           }}>
-            You joined as{' '}
+            ✅ You are playing as{' '}
             <strong style={{
               textTransform: 'capitalize',
               color: ROLE_COLOR[player.role]
             }}>
               {player.role}
             </strong>
-            {' '}— waiting for the instructor to start.
+            {' '}— click Start when ready.
           </div>
         )}
 
-        {/* Start button — instructor only */}
-        {isInstructor && (
+        {/* Start button — creator always sees this */}
+        {canStartGame && (
           <div className="ma-welcome-actions">
             <button
               type="button"

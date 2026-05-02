@@ -57,7 +57,7 @@ export function WelcomeScreen({ onStart }) {
       } else if (mode === 'create') {
         // Instructor creates a session
         const session = await createSession();
-        onStart({ mode: 'multiplayer', playerRole: null, session, player: null });
+        onStart({ mode: 'multiplayer', playerRole: null, session, player: null, isCreator: true });
 
       } else if (mode === 'join') {
         // Player joins a session
