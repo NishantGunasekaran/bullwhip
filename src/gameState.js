@@ -1,34 +1,47 @@
-// ─── Constants ───────────────────────────────────────────────
-export const TIERS = ['retailer', 'distributor', 'wholesaler', 'manufacturer'];
+/** Downstream → upstream: retailer faces customers, factory brews. */
+export const TIERS = ['retailer', 'wholesaler', 'distributor', 'factory'];
 
-export const LEAD_TIME = 2;  // rounds before a shipment arrives
-export const HOLDING_COST = 0.5;  // ₹ per unit per round held
-export const BACKLOG_COST = 1.0;  // ₹ per unit per round unfilled
+export const SHIPMENT_LEAD_TIME = 2;
+export const ORDER_LEAD_TIME = 2;
+export const HOLDING_COST = 0.5;
+export const BACKLOG_COST = 1.0;
 export const TOTAL_ROUNDS = 20;
 
-// ─── One tier's state for a single round ─────────────────────
-// (This is exactly one row in your mental PostgreSQL table)
+/** Steady-state pipeline: 4 units/week in transit (typical beer-game init). */
+const INITIAL_PIPELINE = 4;
+
 export function createTierState(name) {
-  return {
+  const tier = {
     name,
-    inventory:    16,   // units on hand right now
-    backlog:       0,   // unfilled orders owed to downstream
-    incomingShipments: [0, 0], // pipeline: [arrives next round, round after]
-    lastOrderPlaced:  4,   // what this tier ordered last round
-    lastOrderReceived: 0,  // what came in from upstream this round
-    totalCost:         0,  // accumulated ₹ cost
-    orderHistory:      [],  // array of orders placed each round
-    inventoryHistory:  [],  // for the chart
+    inventory: 12,
+    backlog: 0,
+    incomingShipments: [INITIAL_PIPELINE, INITIAL_PIPELINE],
+    incomingOrdersThisRound: 0,
+    lastOrderPlaced: INITIAL_PIPELINE,
+    lastOrderReceived: 0,
+    totalCost: 0,
+    orderHistory: [],
+    inventoryHistory: [],
+    backlogHistory: [],
+    demandHistory: [],
+    deliveryHistory: [],
+    shipmentHistory: [],
+    costHistory: [],
   };
+
+  if (name !== 'retailer') {
+    tier.incomingOrderQueue = [INITIAL_PIPELINE, INITIAL_PIPELINE];
+  }
+
+  return tier;
 }
 
-// ─── Full game state ─────────────────────────────────────────
 export function createInitialGameState() {
   return {
-    round:       0,
-    tiers:       Object.fromEntries(TIERS.map(t => [t, createTierState(t)])),
-    demandHistory: [],    // actual end-customer demand each round
-    pendingOrders: {},    // orders placed this round, waiting to submit
-    phase:       'ordering', // 'ordering' | 'results' | 'gameover'
+    round: 0,
+    tiers: Object.fromEntries(TIERS.map(t => [t, createTierState(t)])),
+    demandHistory: [],
+    pendingOrders: {},
+    phase: 'ordering',
   };
 }

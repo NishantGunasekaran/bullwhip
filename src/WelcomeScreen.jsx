@@ -1,19 +1,27 @@
 export function WelcomeScreen({ onStart }) {
+  const tiers = [
+    { name: 'Retailer', blurb: 'Faces end-customer demand' },
+    { name: 'Wholesaler', blurb: 'Supplies the retailer' },
+    { name: 'Distributor', blurb: 'Supplies the wholesaler' },
+    { name: 'Factory', blurb: 'Supplies the distributor; production has lead time' },
+  ];
+
   return (
-    <div style={{ 
-      maxWidth: '800px', 
-      margin: '3rem auto', 
+    <div style={{
+      maxWidth: '800px',
+      margin: '3rem auto',
       padding: '2rem',
-      textAlign: 'center' 
+      textAlign: 'center'
     }}>
       <h1 style={{ fontSize: '32px', marginBottom: '1rem' }}>
         The Bullwhip Effect Simulation
       </h1>
-      
+
       <p style={{ fontSize: '16px', color: '#666', marginBottom: '2rem', lineHeight: '1.6' }}>
-        Experience how small fluctuations in retail demand can create massive 
-        swings in orders upstream. You'll manage a 4-tier supply chain and 
-        see the bullwhip effect emerge from your decisions.
+        Experience how small fluctuations in retail demand can create massive
+        swings in orders upstream. You&apos;ll manage a 4-echelon chain (retailer → wholesaler →
+        distributor → factory) with separate <strong>2-week shipment</strong> and{' '}
+        <strong>2-week order-information</strong> delays.
       </p>
 
       <div style={{
@@ -25,35 +33,32 @@ export function WelcomeScreen({ onStart }) {
       }}>
         <h2 style={{ fontSize: '20px', marginBottom: '1rem' }}>How to Play</h2>
         <ol style={{ paddingLeft: '1.5rem', lineHeight: '1.8' }}>
-          <li>Each round, decide how many units to order from your supplier</li>
-          <li>Orders take <strong>2 rounds</strong> to arrive (lead time)</li>
-          <li>You pay ₹0.50 per unit in inventory (holding cost)</li>
-          <li>You pay ₹1.00 per unit of unfulfilled orders (backlog penalty)</li>
-          <li>Goal: Minimize total system cost across all 4 tiers</li>
+          <li>Each week: receive shipments, read orders from your customer (retailer uses market demand; others use delayed downstream orders), fulfill what you can, then place a new order upstream.</li>
+          <li>Shipments and order signals each use a <strong>2-week pipeline</strong> (two queue slots).</li>
+          <li>Holding cost <strong>₹0.50</strong> per unit in inventory per week; backlog cost <strong>₹1.00</strong> per unit of unfilled demand per week.</li>
+          <li>Starting inventory <strong>12</strong> per echelon (pipelines seeded for steady flow).</li>
+          <li>Goal: minimize total system cost over 20 weeks.</li>
         </ol>
       </div>
 
-      <div style={{ 
-        display: 'grid', 
+      <div style={{
+        display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
         gap: '1rem',
         marginBottom: '2rem'
       }}>
-        {['Retailer', 'Distributor', 'Wholesaler', 'Manufacturer'].map(tier => (
-          <div key={tier} style={{
+        {tiers.map(tier => (
+          <div key={tier.name} style={{
             background: 'white',
             border: '1px solid #ddd',
             borderRadius: '8px',
             padding: '1rem'
           }}>
             <div style={{ fontSize: '14px', fontWeight: '600', marginBottom: '0.5rem' }}>
-              {tier}
+              {tier.name}
             </div>
             <div style={{ fontSize: '12px', color: '#666' }}>
-              {tier === 'Retailer' && 'Serves customers'}
-              {tier === 'Distributor' && 'Supplies retailer'}
-              {tier === 'Wholesaler' && 'Supplies distributor'}
-              {tier === 'Manufacturer' && 'Produces goods'}
+              {tier.blurb}
             </div>
           </div>
         ))}

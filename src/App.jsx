@@ -15,27 +15,30 @@ function App() {
     setGameStarted(false);
   };
 
-  // Welcome screen
   if (!gameStarted) {
     return <WelcomeScreen onStart={() => setGameStarted(true)} />;
   }
 
-  // Game over screen
   if (game.phase === 'gameover') {
     return <GameOverScreen game={game} resetGame={handleReset} totalSystemCost={totalSystemCost} />;
   }
 
-  // Active gameplay
+  // Current round is 1-indexed for display: game.round rounds are completed,
+  // so the player is now working on round game.round + 1.
+  const displayRound = game.round + 1;
+  const lastDemand = game.round > 0 ? game.demandHistory[game.round - 1] : null;
+
   return (
     <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
       <h1 style={{ marginBottom: '0.5rem' }}>Bullwhip Supply Chain Game</h1>
       <p style={{ color: '#6b7280', marginBottom: '2rem', fontSize: '14px' }}>
-        Manage your supply chain tier and minimize system costs
+        Retailer → Wholesaler → Distributor → Factory. Two-week shipment and order-information pipelines.
+        Minimize total system cost.
       </p>
-      
-      <div style={{ 
-        display: 'flex', 
-        gap: '2rem', 
+
+      <div style={{
+        display: 'flex',
+        gap: '2rem',
         marginBottom: '2rem',
         padding: '1rem',
         background: '#f9fafb',
@@ -44,12 +47,12 @@ function App() {
       }}>
         <div>
           <div style={{ fontSize: '12px', color: '#6b7280' }}>Round</div>
-          <div style={{ fontSize: '20px', fontWeight: '600' }}>{game.round} / 20</div>
+          <div style={{ fontSize: '20px', fontWeight: '600' }}>{displayRound} / 20</div>
         </div>
         <div>
-          <div style={{ fontSize: '12px', color: '#6b7280' }}>Customer Demand</div>
+          <div style={{ fontSize: '12px', color: '#6b7280' }}>Last Round Demand</div>
           <div style={{ fontSize: '20px', fontWeight: '600' }}>
-            {game.demandHistory[game.round - 1] || 0}
+            {lastDemand !== null ? lastDemand : '—'}
           </div>
         </div>
         <div>
@@ -60,8 +63,8 @@ function App() {
         </div>
       </div>
 
-      <div style={{ 
-        display: 'grid', 
+      <div style={{
+        display: 'grid',
         gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
         gap: '1rem',
         marginBottom: '2rem'
@@ -69,7 +72,7 @@ function App() {
         {TIERS.map(tierName => {
           const tier = game.tiers[tierName];
           return (
-            <div 
+            <div
               key={tierName}
               style={{
                 border: '1px solid #e5e7eb',
@@ -78,8 +81,8 @@ function App() {
                 background: 'white'
               }}
             >
-              <h3 style={{ 
-                marginTop: 0, 
+              <h3 style={{
+                marginTop: 0,
                 textTransform: 'capitalize',
                 fontSize: '16px',
                 fontWeight: '600',
@@ -87,10 +90,10 @@ function App() {
               }}>
                 {tierName}
               </h3>
-              
+
               <div style={{ marginBottom: '1rem', fontSize: '13px' }}>
-                <div style={{ 
-                  display: 'grid', 
+                <div style={{
+                  display: 'grid',
                   gridTemplateColumns: '1fr 1fr',
                   gap: '0.5rem'
                 }}>
@@ -100,8 +103,8 @@ function App() {
                   </div>
                   <div>
                     <div style={{ color: '#6b7280', fontSize: '11px' }}>Backlog</div>
-                    <div style={{ 
-                      fontWeight: '600', 
+                    <div style={{
+                      fontWeight: '600',
                       fontSize: '18px',
                       color: tier.backlog > 0 ? '#ef4444' : '#10b981'
                     }}>
@@ -116,13 +119,21 @@ function App() {
                     <div style={{ color: '#6b7280', fontSize: '11px' }}>Cost</div>
                     <div style={{ fontWeight: '600', fontSize: '16px' }}>₹{Math.round(tier.totalCost)}</div>
                   </div>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <div style={{ color: '#6b7280', fontSize: '11px' }}>
+                      {tierName === 'retailer' ? 'Customer demand (last round)' : 'Orders from downstream (last round)'}
+                    </div>
+                    <div style={{ fontWeight: '600', fontSize: '15px' }}>
+                      {game.round === 0 ? '—' : tier.incomingOrdersThisRound}
+                    </div>
+                  </div>
                 </div>
               </div>
 
               <div>
-                <label style={{ 
-                  display: 'block', 
-                  marginBottom: '0.5rem', 
+                <label style={{
+                  display: 'block',
+                  marginBottom: '0.5rem',
                   fontSize: '12px',
                   fontWeight: '500',
                   color: '#374151'
@@ -141,7 +152,8 @@ function App() {
                     fontSize: '14px',
                     border: '1px solid #d1d5db',
                     borderRadius: '6px',
-                    fontFamily: 'inherit'
+                    fontFamily: 'inherit',
+                    boxSizing: 'border-box'
                   }}
                 />
               </div>
@@ -165,7 +177,7 @@ function App() {
           marginBottom: '2rem'
         }}
       >
-        Submit Round {game.round + 1}
+        Submit Round {displayRound}
       </button>
 
       {game.round > 2 && <BullwhipChart game={game} />}

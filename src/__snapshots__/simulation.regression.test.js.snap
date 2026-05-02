@@ -1,0 +1,124 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`beer game simulation regression > golden: first 3 rounds steady 4/4 (catch unintended engine changes) 1`] = `
+{
+  "demandHistory": [
+    4,
+    4,
+    4,
+  ],
+  "phase": "ordering",
+  "round": 3,
+  "tiers": {
+    "distributor": {
+      "backlog": 0,
+      "backlogHistory": [
+        0,
+        0,
+        0,
+      ],
+      "incomingOrderQueue": [
+        4,
+        4,
+      ],
+      "incomingShipments": [
+        4,
+        4,
+      ],
+      "inventory": 12,
+      "inventoryHistory": [
+        12,
+        12,
+        12,
+      ],
+      "orderHistory": [
+        4,
+        4,
+        4,
+      ],
+      "totalCost": 18,
+    },
+    "factory": {
+      "backlog": 0,
+      "backlogHistory": [
+        0,
+        0,
+        0,
+      ],
+      "incomingOrderQueue": [
+        4,
+        4,
+      ],
+      "incomingShipments": [
+        4,
+        4,
+      ],
+      "inventory": 12,
+      "inventoryHistory": [
+        12,
+        12,
+        12,
+      ],
+      "orderHistory": [
+        4,
+        4,
+        4,
+      ],
+      "totalCost": 18,
+    },
+    "retailer": {
+      "backlog": 0,
+      "backlogHistory": [
+        0,
+        0,
+        0,
+      ],
+      "incomingOrderQueue": null,
+      "incomingShipments": [
+        4,
+        4,
+      ],
+      "inventory": 12,
+      "inventoryHistory": [
+        12,
+        12,
+        12,
+      ],
+      "orderHistory": [
+        4,
+        4,
+        4,
+      ],
+      "totalCost": 18,
+    },
+    "wholesaler": {
+      "backlog": 0,
+      "backlogHistory": [
+        0,
+        0,
+        0,
+      ],
+      "incomingOrderQueue": [
+        4,
+        4,
+      ],
+      "incomingShipments": [
+        4,
+        4,
+      ],
+      "inventory": 12,
+      "inventoryHistory": [
+        12,
+        12,
+        12,
+      ],
+      "orderHistory": [
+        4,
+        4,
+        4,
+      ],
+      "totalCost": 18,
+    },
+  },
+}
+`;

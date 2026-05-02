@@ -1,64 +1,102 @@
-import { HOLDING_COST, BACKLOG_COST, LEAD_TIME, TIERS } from './gameState';
+import {
+  HOLDING_COST,
+  BACKLOG_COST,
+  SHIPMENT_LEAD_TIME,
+  ORDER_LEAD_TIME,
+  TIERS,
+  TOTAL_ROUNDS,
+} from './gameState';
 
+/**
+ * One week for all echelons (interleaved phases):
+ * 1) Receive shipments into inventory
+ * 2) Read incoming orders (retailer: customer demand; others: order pipeline from downstream)
+ * 3) Fulfill: shipment = min(inventory, incoming + backlog); push beer to buyer's shipment queue
+ * 4) Place new orders (player input); factory releases production into its own shipment pipeline
+ * 5) Holding + backlog costs
+ */
 export function advanceRound(state, orders, demand) {
   const next = deepCopy(state);
   next.round += 1;
   next.demandHistory.push(demand);
 
-  // Step 1: Receive shipments and fulfill LAST round's demand
-  TIERS.forEach((tierName, i) => {
-    const tier = next.tiers[tierName];
+  const shipmentsOut = Object.fromEntries(TIERS.map(t => [t, 0]));
+  const incoming = {};
 
-    // Receive incoming shipment
+  // —— Step 1: receive shipments ——
+  for (const tierName of TIERS) {
+    const tier = next.tiers[tierName];
     const arriving = tier.incomingShipments.shift() || 0;
     tier.incomingShipments.push(0);
     tier.inventory += arriving;
     tier.lastOrderReceived = arriving;
+  }
 
-    // Demand on this tier = PREVIOUS round's order from downstream
-    // (Retailer serves actual customer demand, others serve last round's order)
-    const demandOnTier = (i === 0) 
-      ? demand 
-      : next.tiers[TIERS[i - 1]].lastOrderPlaced;
+  // —— Step 2: incoming orders ——
+  incoming.retailer = demand;
+  next.tiers.retailer.incomingOrdersThisRound = demand;
 
-    // Fulfill demand (current demand + existing backlog)
-    const totalDemand = demandOnTier + tier.backlog;
-    const fulfilled = Math.min(tier.inventory, totalDemand);
-    tier.inventory -= fulfilled;
-    tier.backlog = totalDemand - fulfilled;
+  for (let i = 1; i < TIERS.length; i++) {
+    const tierName = TIERS[i];
+    const tier = next.tiers[tierName];
+    const fromQueue = tier.incomingOrderQueue.shift() || 0;
+    tier.incomingOrderQueue.push(0);
+    incoming[tierName] = fromQueue;
+    tier.incomingOrdersThisRound = fromQueue;
+  }
 
-    // Calculate costs
-    tier.totalCost += (tier.inventory * HOLDING_COST) + (tier.backlog * BACKLOG_COST);
-    tier.inventoryHistory.push(tier.inventory);
-  });
+  // —— Step 3: fulfill demand ——
+  const ret = next.tiers.retailer;
+  const retNeed = incoming.retailer + ret.backlog;
+  const retShip = Math.min(ret.inventory, retNeed);
+  ret.inventory -= retShip;
+  ret.backlog = retNeed - retShip;
+  shipmentsOut.retailer = retShip;
 
-  // Step 2: Place THIS round's orders and prepare shipments
-  TIERS.forEach((tierName, i) => {
+  for (let i = 1; i < TIERS.length; i++) {
+    const supplierName = TIERS[i];
+    const buyerName = TIERS[i - 1];
+    const supplier = next.tiers[supplierName];
+    const need = incoming[supplierName] + supplier.backlog;
+    const ship = Math.min(supplier.inventory, need);
+    supplier.inventory -= ship;
+    supplier.backlog = need - ship;
+    next.tiers[buyerName].incomingShipments[SHIPMENT_LEAD_TIME - 1] += ship;
+    shipmentsOut[supplierName] = ship;
+  }
+
+  // —— Step 4: place orders (human input) ——
+  for (let i = 0; i < TIERS.length; i++) {
+    const tierName = TIERS[i];
     const tier = next.tiers[tierName];
     const orderQty = orders[tierName] || 0;
-
     tier.lastOrderPlaced = orderQty;
     tier.orderHistory.push(orderQty);
 
     if (i === TIERS.length - 1) {
-      // Manufacturer - unlimited production capacity
-      tier.incomingShipments[LEAD_TIME - 1] += orderQty;
+      tier.incomingShipments[SHIPMENT_LEAD_TIME - 1] += orderQty;
     } else {
-      // Order from upstream supplier
-      const supplier = next.tiers[TIERS[i + 1]];
-      
-      // Supplier ships what they can from current inventory
-      const canShip = Math.min(orderQty, supplier.inventory);
-      supplier.inventory -= canShip;
-      
-      // Shipment enters pipeline (arrives in LEAD_TIME rounds)
-      tier.incomingShipments[LEAD_TIME - 1] += canShip;
+      const supplierName = TIERS[i + 1];
+      next.tiers[supplierName].incomingOrderQueue[ORDER_LEAD_TIME - 1] += orderQty;
     }
-  });
+  }
 
-  next.phase = (next.round >= 20) ? 'gameover' : 'ordering';
+  // —— Step 5: costs + histories ——
+  for (const tierName of TIERS) {
+    const tier = next.tiers[tierName];
+    const roundCost =
+      tier.inventory * HOLDING_COST + tier.backlog * BACKLOG_COST;
+    tier.totalCost += roundCost;
+    tier.inventoryHistory.push(tier.inventory);
+    tier.backlogHistory.push(tier.backlog);
+    tier.demandHistory.push(incoming[tierName]);
+    tier.deliveryHistory.push(tier.lastOrderReceived);
+    tier.shipmentHistory.push(shipmentsOut[tierName]);
+    tier.costHistory.push(roundCost);
+  }
+
+  next.phase = next.round >= TOTAL_ROUNDS ? 'gameover' : 'ordering';
   next.pendingOrders = {};
-  
   return next;
 }
 
