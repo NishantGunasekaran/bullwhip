@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { createInitialGameState, TIERS } from './gameState';
 import { advanceRound } from './roundEngine';
 import { getDemandForRound } from './demandCurve';
@@ -6,6 +6,11 @@ import { fillGhostOrders } from './ghostPlayer';
 
 export function useGame(playerRole = null) {
   const [game, setGame] = useState(createInitialGameState);
+
+  // Keep a ref that always has the latest game state
+  // This avoids stale closure issues in subscriptions
+  const gameRef = useRef(game);
+  gameRef.current = game;
 
   const setOrder = useCallback((tierName, qty) => {
     const numQty = Number(qty);
@@ -19,19 +24,34 @@ export function useGame(playerRole = null) {
   const submitRound = useCallback(() => {
     setGame(prev => {
       const demand = getDemandForRound(prev.round);
-
       let orders;
       if (playerRole) {
-        // Solo mode: fill ghost orders for all non-player tiers
         orders = fillGhostOrders(prev, playerRole, prev.pendingOrders);
       } else {
-        // Full manual mode: fill missing orders with heuristic
         orders = fillMissingOrders(prev);
       }
-
       return advanceRound(prev, orders, demand);
     });
   }, [playerRole]);
+
+  // Multiplayer: advance with specific orders from all players
+  // Takes current state from ref to avoid stale closures
+  // Returns the new state synchronously so it can be saved to Supabase
+  const advanceWithOrders = useCallback((ordersMap) => {
+    const currentGame = gameRef.current;
+    const demand = getDemandForRound(currentGame.round);
+    const newState = advanceRound(currentGame, ordersMap, demand);
+    setGame(newState);
+    return newState; // now synchronous — always returns the new state
+  }, []);
+
+  // Multiplayer: load state received from Supabase
+  const loadExternalState = useCallback((externalState) => {
+    setGame({
+      ...externalState,
+      pendingOrders: {},
+    });
+  }, []);
 
   const resetGame = useCallback(() => {
     setGame(createInitialGameState());
@@ -41,7 +61,16 @@ export function useGame(playerRole = null) {
     (sum, t) => sum + game.tiers[t].totalCost, 0
   );
 
-  return { game, setOrder, submitRound, resetGame, totalSystemCost };
+  return {
+    game,
+    gameRef,
+    setOrder,
+    submitRound,
+    advanceWithOrders,
+    loadExternalState,
+    resetGame,
+    totalSystemCost
+  };
 }
 
 function fillMissingOrders(game) {
