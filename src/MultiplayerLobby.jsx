@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getPlayers, subscribeToPlayers, updateSession, joinSession } from './sessionService';
+import { getPlayers, subscribeToPlayers, updateSession, joinSession, subscribeToSession } from './sessionService';
 
 const ROLES = ['retailer', 'wholesaler', 'distributor', 'factory'];
 
@@ -47,12 +47,25 @@ export function MultiplayerLobby({ session, player, onGameStart, onJoinAsPlayer,
     };
     load();
 
-    const sub = subscribeToPlayers(session.id, async () => {
+    // Subscribe to new players joining
+    const playerSub = subscribeToPlayers(session.id, async () => {
       const data = await getPlayers(session.id);
       setPlayers(data);
     });
 
-    return () => sub.unsubscribe();
+    // Subscribe to session status — when instructor starts,
+    // all waiting players automatically transition to the game
+    const sessionSub = subscribeToSession(session.id, (payload) => {
+      if (payload.new?.status === 'playing') {
+        const ghostRoles = payload.new?.ghost_roles || [];
+        onGameStart({ ghostRoles });
+      }
+    });
+
+    return () => {
+      playerSub.unsubscribe();
+      sessionSub.unsubscribe();
+    };
   }, [session.id]);
 
   const joinedRoles = players.map(p => p.role);
