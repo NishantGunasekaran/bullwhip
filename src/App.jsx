@@ -234,6 +234,13 @@ function App() {
           setGameConfig(prev => ({ ...prev, ghostRoles: gr }));
           setMultiplayerState('playing');
         }}
+        onJoinAsPlayer={(newPlayer) => {
+          setGameConfig(prev => ({
+            ...prev,
+            player: newPlayer,
+            playerRole: newPlayer.role,
+          }));
+        }}
       />
     );
   }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getPlayers, subscribeToPlayers, updateSession } from './sessionService';
+import { getPlayers, subscribeToPlayers, updateSession, joinSession } from './sessionService';
 
 const ROLES = ['retailer', 'wholesaler', 'distributor', 'factory'];
 
@@ -17,10 +17,21 @@ const LETTER = {
   factory: 'F',
 };
 
-export function MultiplayerLobby({ session, player, onGameStart }) {
+const ROLE_BLURB = {
+  retailer: 'End-customer demand',
+  wholesaler: 'Supplies retailer',
+  distributor: 'Supplies wholesaler',
+  factory: 'Production & lead time',
+};
+
+export function MultiplayerLobby({ session, player, onGameStart, onJoinAsPlayer }) {
   const [players, setPlayers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
+  const [joiningRole, setJoiningRole] = useState(null);
+  const [playerName, setPlayerName] = useState('');
+  const [joinError, setJoinError] = useState(null);
+  const [showJoinSection, setShowJoinSection] = useState(false);
 
   const isInstructor = !player;
 
@@ -46,12 +57,26 @@ export function MultiplayerLobby({ session, player, onGameStart }) {
 
   const handleStartGame = async () => {
     setStarting(true);
-    // Save which roles are ghosts so the game knows
+    const currentGhostRoles = ROLES.filter(r => !players.map(p => p.role).includes(r));
     await updateSession(session.id, {
       status: 'playing',
-      ghost_roles: ghostRoles  // store ghost roles in session
+      ghost_roles: currentGhostRoles
     });
-    onGameStart({ ghostRoles });
+    onGameStart({ ghostRoles: currentGhostRoles });
+  };
+
+  const handleJoinAsPlayer = async () => {
+    if (!joiningRole) return;
+    setJoinError(null);
+
+    try {
+      const name = playerName.trim() || 'Instructor';
+      const { player: newPlayer } = await joinSession(session.code, joiningRole, name);
+      onJoinAsPlayer(newPlayer); // tell App.jsx about the new player role
+      setShowJoinSection(false);
+    } catch (err) {
+      setJoinError(err.message);
+    }
   };
 
   if (loading) {
@@ -114,19 +139,14 @@ export function MultiplayerLobby({ session, player, onGameStart }) {
           }}>
             {ROLES.map(role => {
               const joined = players.find(p => p.role === role);
-              const isGhost = !joined;
               return (
                 <div
                   key={role}
                   style={{
                     padding: '1rem',
-                    border: `2px solid ${joined
-                      ? ROLE_COLOR[role]
-                      : 'rgba(28,45,74,0.15)'}`,
+                    border: `2px solid ${joined ? ROLE_COLOR[role] : 'rgba(28,45,74,0.15)'}`,
                     borderRadius: '10px',
-                    background: joined
-                      ? `${ROLE_COLOR[role]}10`
-                      : '#f9fafb',
+                    background: joined ? `${ROLE_COLOR[role]}10` : '#f9fafb',
                     display: 'flex',
                     alignItems: 'center',
                     gap: '10px'
@@ -152,9 +172,7 @@ export function MultiplayerLobby({ session, player, onGameStart }) {
                       {role}
                     </div>
                     <div style={{ fontSize: '11px', color: '#6b7280' }}>
-                      {joined
-                        ? `✅ ${joined.player_name}`
-                        : '🤖 Will be AI ghost'}
+                      {joined ? `✅ ${joined.player_name}` : '🤖 Will be AI ghost'}
                     </div>
                   </div>
                 </div>
@@ -163,24 +181,175 @@ export function MultiplayerLobby({ session, player, onGameStart }) {
           </div>
         </div>
 
-        {/* Your role indicator (for players) */}
-        {player && (
-          <div style={{
-            background: `${ROLE_COLOR[player.role]}15`,
-            border: `1px solid ${ROLE_COLOR[player.role]}`,
-            borderRadius: '10px',
-            padding: '1rem',
-            textAlign: 'center',
-            fontSize: '14px'
-          }}>
-            You joined as{' '}
-            <strong style={{
-              textTransform: 'capitalize',
-              color: ROLE_COLOR[player.role]
+        {/* Instructor: join as a player */}
+        {isInstructor && (
+          <div className="ma-welcome-card">
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: showJoinSection ? '1rem' : 0
             }}>
-              {player.role}
-            </strong>
-            {' '}— waiting for the instructor to start.
+              <div>
+                <h2 style={{ marginBottom: '2px' }}>Join as a player</h2>
+                <p style={{ fontSize: '13px', color: '#5a6578' }}>
+                  Play one of the roles yourself
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowJoinSection(prev => !prev);
+                  setJoinError(null);
+                  setJoiningRole(null);
+                }}
+                style={{
+                  padding: '6px 14px',
+                  border: '1px solid rgba(28,45,74,0.2)',
+                  borderRadius: '8px',
+                  background: 'white',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  color: '#1c2d4a'
+                }}
+              >
+                {showJoinSection ? 'Cancel' : '+ Join a role'}
+              </button>
+            </div>
+
+            {showJoinSection && (
+              <>
+                {/* Name input */}
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{
+                    fontSize: '13px', fontWeight: 600,
+                    display: 'block', marginBottom: '6px'
+                  }}>
+                    Your name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Enter your name"
+                    value={playerName}
+                    onChange={e => setPlayerName(e.target.value)}
+                    style={{
+                      width: '100%', padding: '10px 12px',
+                      border: '2px solid #d1d5db', borderRadius: '8px',
+                      fontSize: '14px', fontFamily: 'inherit'
+                    }}
+                  />
+                </div>
+
+                {/* Role picker — only show available roles */}
+                <div style={{ marginBottom: '1rem' }}>
+                  <label style={{
+                    fontSize: '13px', fontWeight: 600,
+                    display: 'block', marginBottom: '8px'
+                  }}>
+                    Pick an available role
+                  </label>
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '0.75rem'
+                  }}>
+                    {ROLES.map(role => {
+                      const taken = joinedRoles.includes(role);
+                      return (
+                        <button
+                          key={role}
+                          type="button"
+                          disabled={taken}
+                          onClick={() => !taken && setJoiningRole(role)}
+                          style={{
+                            padding: '0.75rem',
+                            border: `2px solid ${joiningRole === role
+                              ? ROLE_COLOR[role]
+                              : taken ? '#e5e7eb' : 'rgba(28,45,74,0.15)'}`,
+                            borderRadius: '10px',
+                            background: taken ? '#f3f4f6'
+                              : joiningRole === role
+                                ? `${ROLE_COLOR[role]}12`
+                                : 'white',
+                            cursor: taken ? 'not-allowed' : 'pointer',
+                            opacity: taken ? 0.5 : 1,
+                            textAlign: 'left'
+                          }}
+                        >
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '8px'
+                          }}>
+                            <span style={{
+                              width: '26px', height: '26px',
+                              borderRadius: '50%',
+                              background: taken ? '#9ca3af' : ROLE_COLOR[role],
+                              color: 'white',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: '12px', fontWeight: 700, flexShrink: 0
+                            }}>
+                              {LETTER[role]}
+                            </span>
+                            <div>
+                              <div style={{
+                                fontSize: '13px',
+                                fontWeight: 700,
+                                textTransform: 'capitalize'
+                              }}>
+                                {role}
+                              </div>
+                              <div style={{ fontSize: '11px', color: '#6b7280' }}>
+                                {taken ? 'Already taken' : ROLE_BLURB[role]}
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Error message */}
+                {joinError && (
+                  <div style={{
+                    background: '#fef2f2',
+                    border: '1px solid #fca5a5',
+                    borderRadius: '8px',
+                    padding: '0.75rem',
+                    fontSize: '13px',
+                    color: '#dc2626',
+                    marginBottom: '1rem'
+                  }}>
+                    ⚠️ {joinError}
+                  </div>
+                )}
+
+                {/* Join button */}
+                <button
+                  type="button"
+                  onClick={handleJoinAsPlayer}
+                  disabled={!joiningRole}
+                  style={{
+                    width: '100%',
+                    padding: '12px',
+                    fontSize: '14px',
+                    fontWeight: 600,
+                    background: joiningRole ? ROLE_COLOR[joiningRole] : '#d1d5db',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: joiningRole ? 'pointer' : 'not-allowed',
+                    textTransform: 'capitalize'
+                  }}
+                >
+                  {joiningRole
+                    ? `Join as ${joiningRole} →`
+                    : 'Select a role to join'}
+                </button>
+              </>
+            )}
           </div>
         )}
 
@@ -198,7 +367,28 @@ export function MultiplayerLobby({ session, player, onGameStart }) {
             <span style={{ textTransform: 'capitalize' }}>
               {ghostRoles.join(', ')}
             </span>{' '}
-            will be managed by AI using an order-up-to policy. You can start now or wait for more players.
+            will be managed by AI. You can start now or wait for more players.
+          </div>
+        )}
+
+        {/* Your role indicator for players */}
+        {player && (
+          <div style={{
+            background: `${ROLE_COLOR[player.role]}15`,
+            border: `1px solid ${ROLE_COLOR[player.role]}`,
+            borderRadius: '10px',
+            padding: '1rem',
+            textAlign: 'center',
+            fontSize: '14px'
+          }}>
+            You joined as{' '}
+            <strong style={{
+              textTransform: 'capitalize',
+              color: ROLE_COLOR[player.role]
+            }}>
+              {player.role}
+            </strong>
+            {' '}— waiting for the instructor to start.
           </div>
         )}
 
