@@ -1,10 +1,39 @@
 import { useState } from 'react';
 import { useGame } from './useGame';
 import { TIERS } from './gameState';
+import { getDemandForRound } from './demandCurve';
 import { WelcomeScreen } from './WelcomeScreen';
 import { GameOverScreen } from './GameOverScreen';
 import { BullwhipChart } from './BullwhipChart';
 import './App.css';
+
+const SHIP_TO = {
+  retailer: 'customers',
+  wholesaler: 'retailer',
+  distributor: 'wholesaler',
+  factory: 'distributor',
+};
+
+const ORDER_TO = {
+  retailer: 'wholesaler',
+  wholesaler: 'distributor',
+  distributor: 'factory',
+  factory: 'production',
+};
+
+const LETTER = {
+  retailer: 'R',
+  wholesaler: 'W',
+  distributor: 'D',
+  factory: 'F',
+};
+
+const ROLE_BLURB = {
+  retailer: 'Serves market demand',
+  wholesaler: 'Supplies retailer',
+  distributor: 'Supplies wholesaler',
+  factory: 'Production & lead time',
+};
 
 function App() {
   const [gameStarted, setGameStarted] = useState(false);
@@ -23,164 +52,157 @@ function App() {
     return <GameOverScreen game={game} resetGame={handleReset} totalSystemCost={totalSystemCost} />;
   }
 
-  // Current round is 1-indexed for display: game.round rounds are completed,
-  // so the player is now working on round game.round + 1.
   const displayRound = game.round + 1;
   const lastDemand = game.round > 0 ? game.demandHistory[game.round - 1] : null;
 
   return (
-    <div style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
-      <h1 style={{ marginBottom: '0.5rem' }}>Bullwhip Supply Chain Game</h1>
-      <p style={{ color: '#6b7280', marginBottom: '2rem', fontSize: '14px' }}>
-        Retailer → Wholesaler → Distributor → Factory. Two-week shipment and order-information pipelines.
-        Minimize total system cost.
-      </p>
-
-      <div style={{
-        display: 'flex',
-        gap: '2rem',
-        marginBottom: '2rem',
-        padding: '1rem',
-        background: '#f9fafb',
-        borderRadius: '8px',
-        flexWrap: 'wrap'
-      }}>
-        <div>
-          <div style={{ fontSize: '12px', color: '#6b7280' }}>Round</div>
-          <div style={{ fontSize: '20px', fontWeight: '600' }}>{displayRound} / 20</div>
+    <div className="ma-play">
+      <header className="ma-topbar">
+        <div className="ma-brand">
+          <span className="ma-logo">Beer Game</span>
+          <span className="ma-tagline">Supply chain · inspired by classic board flow</span>
         </div>
-        <div>
-          <div style={{ fontSize: '12px', color: '#6b7280' }}>Last Round Demand</div>
-          <div style={{ fontSize: '20px', fontWeight: '600' }}>
-            {lastDemand !== null ? lastDemand : '—'}
+        <div className="ma-week-pill">
+          Week {displayRound} <span>/ 20</span>
+        </div>
+        <div className="ma-topbar-stats">
+          <div className="ma-topbar-stat">
+            <label>Market demand (last)</label>
+            <strong>{lastDemand !== null ? lastDemand : '—'}</strong>
+          </div>
+          <div className="ma-topbar-stat ma-topbar-stat--cost">
+            <label>System cost</label>
+            <strong>₹{Math.round(totalSystemCost)}</strong>
           </div>
         </div>
-        <div>
-          <div style={{ fontSize: '12px', color: '#6b7280' }}>Total System Cost</div>
-          <div style={{ fontSize: '20px', fontWeight: '600', color: '#ef4444' }}>
-            ₹{Math.round(totalSystemCost)}
-          </div>
-        </div>
-      </div>
+      </header>
 
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-        gap: '1rem',
-        marginBottom: '2rem'
-      }}>
-        {TIERS.map(tierName => {
-          const tier = game.tiers[tierName];
-          return (
-            <div
-              key={tierName}
-              style={{
-                border: '1px solid #e5e7eb',
-                borderRadius: '12px',
-                padding: '1.25rem',
-                background: 'white'
-              }}
-            >
-              <h3 style={{
-                marginTop: 0,
-                textTransform: 'capitalize',
-                fontSize: '16px',
-                fontWeight: '600',
-                marginBottom: '1rem'
-              }}>
-                {tierName}
-              </h3>
+      <div className="ma-board">
+        <p className="ma-help">
+          <strong>Flow:</strong> each week you <strong>receive</strong> (trucks), see <strong>orders</strong> from your customer,
+          <strong> ship</strong> what you can, then <strong>place your order</strong> upstream — similar to the
+          letters-and-trucks flow described in professional beer games such as{' '}
+          <a href="https://beergame.masystem.se/play" target="_blank" rel="noopener noreferrer">MA-system&apos;s version</a>.
+        </p>
 
-              <div style={{ marginBottom: '1rem', fontSize: '13px' }}>
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: '1fr 1fr',
-                  gap: '0.5rem'
-                }}>
-                  <div>
-                    <div style={{ color: '#6b7280', fontSize: '11px' }}>Inventory</div>
-                    <div style={{ fontWeight: '600', fontSize: '18px' }}>{tier.inventory}</div>
+        <div className="ma-chain">
+          {TIERS.map((tierName, idx) => {
+            const tier = game.tiers[tierName];
+            const [truckThisWeek, truckNextWeek] = tier.incomingShipments || [0, 0];
+            const customerOrderThisWeek =
+              tierName === 'retailer'
+                ? getDemandForRound(game.round)
+                : (tier.incomingOrderQueue?.[0] ?? 0);
+            const outgoingOrderLabel =
+              tierName === 'factory' ? 'Last to production' : `Last to ${ORDER_TO[tierName]}`;
+
+            return (
+              <div className="ma-chain-seg" key={tierName}>
+                {idx > 0 && (
+                  <div className="ma-flow" aria-hidden="true">
+                    <span className="ma-flow-arrow">→</span>
+                    <span className="ma-flow-label">Goods</span>
                   </div>
-                  <div>
-                    <div style={{ color: '#6b7280', fontSize: '11px' }}>Backlog</div>
-                    <div style={{
-                      fontWeight: '600',
-                      fontSize: '18px',
-                      color: tier.backlog > 0 ? '#ef4444' : '#10b981'
-                    }}>
-                      {tier.backlog}
+                )}
+                <div className="ma-echelon">
+                  <div className="ma-echelon-head">
+                    <span className="ma-letter">{LETTER[tierName]}</span>
+                    <div>
+                      <div className="ma-echelon-title">{tierName}</div>
+                      <div className="ma-echelon-role">{ROLE_BLURB[tierName]}</div>
                     </div>
                   </div>
-                  <div>
-                    <div style={{ color: '#6b7280', fontSize: '11px' }}>Arriving Next</div>
-                    <div style={{ fontWeight: '600', fontSize: '16px' }}>{tier.incomingShipments[0]}</div>
-                  </div>
-                  <div>
-                    <div style={{ color: '#6b7280', fontSize: '11px' }}>Cost</div>
-                    <div style={{ fontWeight: '600', fontSize: '16px' }}>₹{Math.round(tier.totalCost)}</div>
-                  </div>
-                  <div style={{ gridColumn: '1 / -1' }}>
-                    <div style={{ color: '#6b7280', fontSize: '11px' }}>
-                      {tierName === 'retailer' ? 'Customer demand (last round)' : 'Orders from downstream (last round)'}
+                  <div className="ma-echelon-body">
+                    <div className="ma-board-cards">
+                      <div className="ma-board-card ma-board-card--order-in">
+                        <div className="ma-board-card-cap">Customer order</div>
+                        <div className="ma-board-card-val">{customerOrderThisWeek}</div>
+                        <div className="ma-board-card-hint">
+                          {tierName === 'retailer'
+                            ? 'Market demand · this week'
+                            : `From ${SHIP_TO[tierName]} · this week`}
+                        </div>
+                      </div>
+
+                      <div className="ma-board-card ma-board-card--order-out">
+                        <div className="ma-board-card-cap">Outgoing order</div>
+                        <div className="ma-board-card-val">{tier.lastOrderPlaced}</div>
+                        <div className="ma-board-card-hint">{outgoingOrderLabel}</div>
+                      </div>
+
+                      <div className="ma-board-card ma-board-card--stock">
+                        <div className="ma-board-card-cap">Current stock</div>
+                        <div className="ma-stock-inline">
+                          <div>
+                            <span className="ma-stock-inline-label">On hand</span>
+                            <span className="ma-stock-inline-val">{tier.inventory}</span>
+                          </div>
+                          <div>
+                            <span className="ma-stock-inline-label">Backorder</span>
+                            <span
+                              className={`ma-stock-inline-val ${tier.backlog > 0 ? 'ma-stock-inline-val--bad' : 'ma-stock-inline-val--ok'}`}
+                            >
+                              {tier.backlog}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="ma-board-card ma-board-card--delivery">
+                        <div className="ma-board-card-cap">Incoming delivery</div>
+                        <div className="ma-delivery-row">
+                          <div className="ma-delivery-slot">
+                            <span className="ma-delivery-slot-label">This week</span>
+                            <span className="ma-delivery-slot-val">{truckThisWeek}</span>
+                          </div>
+                          <div className="ma-delivery-slot">
+                            <span className="ma-delivery-slot-label">In 2 weeks</span>
+                            <span className="ma-delivery-slot-val">{truckNextWeek}</span>
+                          </div>
+                        </div>
+                        <div className="ma-board-card-hint">Goods in transit to you</div>
+                      </div>
                     </div>
-                    <div style={{ fontWeight: '600', fontSize: '15px' }}>
-                      {game.round === 0 ? '—' : tier.incomingOrdersThisRound}
+
+                    <div className="ma-cost-foot">
+                      Your cumulative cost: <strong>₹{Math.round(tier.totalCost)}</strong>
+                    </div>
+
+                    <div className="ma-board-card ma-board-card--place-order ma-order-zone">
+                      <div className="ma-board-card-cap">Order</div>
+                      <label className="ma-order-label" htmlFor={`order-${tierName}`}>
+                        Units to order → {ORDER_TO[tierName]}
+                      </label>
+                      <input
+                        id={`order-${tierName}`}
+                        className="ma-input"
+                        type="number"
+                        min="0"
+                        placeholder="0"
+                        value={game.pendingOrders[tierName] ?? ''}
+                        onChange={(e) => setOrder(tierName, e.target.value)}
+                      />
+                      <p className="ma-order-foot">
+                        Leave blank to use the game&apos;s steady default for this role.
+                      </p>
                     </div>
                   </div>
                 </div>
               </div>
-
-              <div>
-                <label style={{
-                  display: 'block',
-                  marginBottom: '0.5rem',
-                  fontSize: '12px',
-                  fontWeight: '500',
-                  color: '#374151'
-                }}>
-                  Order quantity:
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  placeholder="Enter order"
-                  value={game.pendingOrders[tierName] ?? ''}
-                  onChange={(e) => setOrder(tierName, e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '10px',
-                    fontSize: '14px',
-                    border: '1px solid #d1d5db',
-                    borderRadius: '6px',
-                    fontFamily: 'inherit',
-                    boxSizing: 'border-box'
-                  }}
-                />
-              </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
-      <button
-        onClick={submitRound}
-        style={{
-          width: '100%',
-          padding: '16px',
-          fontSize: '16px',
-          fontWeight: '600',
-          background: '#0070f3',
-          color: 'white',
-          border: 'none',
-          borderRadius: '8px',
-          cursor: 'pointer',
-          marginBottom: '2rem'
-        }}
-      >
-        Submit Round {displayRound}
+      <button type="button" className="ma-btn-week" onClick={submitRound}>
+        Complete week {displayRound}
       </button>
 
-      {game.round > 2 && <BullwhipChart game={game} />}
+      {game.round > 2 && (
+        <div className="ma-chart-wrap">
+          <BullwhipChart game={game} />
+        </div>
+      )}
     </div>
   );
 }

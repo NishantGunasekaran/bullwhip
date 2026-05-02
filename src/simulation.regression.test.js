@@ -12,6 +12,10 @@ function runRounds(state, rounds, demandFn, ordersFn) {
   return g;
 }
 
+function totalSystemCost(game) {
+  return TIERS.reduce((s, t) => s + game.tiers[t].totalCost, 0);
+}
+
 /** Compact snapshot for golden regression (stable ordering). */
 function snapshotCore(game) {
   return {
@@ -40,7 +44,7 @@ function snapshotCore(game) {
 }
 
 describe('beer game simulation regression', () => {
-  it('round 1: steady demand 4 and all orders 4 matches expected end state', () => {
+  it('round 1: smooth start — steady 4 demand and orders keeps inventory ~12', () => {
     const initial = createInitialGameState();
     const next = advanceRound(initial, STEADY_4, 4);
 
@@ -54,13 +58,14 @@ describe('beer game simulation regression', () => {
       expect(next.tiers[t].orderHistory).toEqual([4]);
       expect(next.tiers[t].totalCost).toBe(6);
       expect(next.tiers[t].incomingShipments).toEqual([4, 4]);
+      expect(next.tiers[t].lastOrderReceived).toBe(4);
     }
 
     expect(next.tiers.retailer.incomingOrdersThisRound).toBe(4);
     expect(next.tiers.wholesaler.incomingOrderQueue).toEqual([4, 4]);
   });
 
-  it('20 rounds steady: completes and stays stable with constant 4 / 4', () => {
+  it('20 rounds steady: completes at full smooth-start cost', () => {
     const final = runRounds(
       createInitialGameState(),
       TOTAL_ROUNDS,
@@ -72,8 +77,7 @@ describe('beer game simulation regression', () => {
     expect(final.round).toBe(TOTAL_ROUNDS);
     expect(final.demandHistory.every(d => d === 4)).toBe(true);
 
-    const totalSystem = TIERS.reduce((s, t) => s + final.tiers[t].totalCost, 0);
-    expect(totalSystem).toBe(20 * 4 * 6);
+    expect(totalSystemCost(final)).toBe(480);
   });
 
   it('golden: first 3 rounds steady 4/4 (catch unintended engine changes)', () => {
@@ -81,17 +85,23 @@ describe('beer game simulation regression', () => {
     expect(snapshotCore(g3)).toMatchSnapshot();
   });
 
-  it('demand step to 8 after week 4 changes costs vs all-4 baseline', () => {
-    const demand = (r) => (r < 4 ? 4 : 8);
-    const final = runRounds(
+  it('demand step to 8 after week 4 increases total cost vs steady 4 demand', () => {
+    const steady = runRounds(
       createInitialGameState(),
       TOTAL_ROUNDS,
-      demand,
+      () => 4,
+      () => STEADY_4
+    );
+    const steadyCost = totalSystemCost(steady);
+
+    const jumped = runRounds(
+      createInitialGameState(),
+      TOTAL_ROUNDS,
+      (r) => (r < 4 ? 4 : 8),
       () => STEADY_4
     );
 
-    expect(final.phase).toBe('gameover');
-    const totalSystem = TIERS.reduce((s, t) => s + final.tiers[t].totalCost, 0);
-    expect(totalSystem).toBeGreaterThan(20 * 4 * 6);
+    expect(jumped.phase).toBe('gameover');
+    expect(totalSystemCost(jumped)).toBeGreaterThan(steadyCost);
   });
 });
