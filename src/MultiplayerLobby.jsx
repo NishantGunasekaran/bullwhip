@@ -1,5 +1,11 @@
 import { useState, useEffect } from 'react';
-import { getPlayers, subscribeToPlayers, updateSession, joinSession, subscribeToSession } from './sessionService';
+import {
+  getPlayers,
+  subscribeToPlayers,
+  updateSession,
+  joinSessionWithRole,
+  subscribeToSession,
+} from './sessionService';
 
 const ROLES = ['retailer', 'wholesaler', 'distributor', 'factory'];
 
@@ -88,8 +94,13 @@ export function MultiplayerLobby({ session, player, onGameStart, onJoinAsPlayer,
 
     try {
       const name = playerName.trim() || 'Instructor';
-      const { player: newPlayer } = await joinSession(session.code, joiningRole, name);
-      onJoinAsPlayer(newPlayer); // tell App.jsx about the new player role
+      const newPlayer = await joinSessionWithRole(
+        session.id,
+        session.code,
+        joiningRole,
+        name.trim() || 'Instructor'
+      );
+      onJoinAsPlayer(newPlayer);
       setShowJoinSection(false);
     } catch (err) {
       setJoinError(err.message);

@@ -1,47 +1,37 @@
 import { useState } from 'react';
 import {
   createSession,
+  createTournament,
   joinSession,
-  getTakenRoles
+  joinTournament,
 } from './sessionService';
-
-const ROLES = [
-  { name: 'retailer',    letter: 'R', title: 'Retailer',    blurb: 'End-customer demand',       color: '#4a6fa5' },
-  { name: 'wholesaler',  letter: 'W', title: 'Wholesaler',  blurb: 'Supplies retailer',          color: '#2a6f62' },
-  { name: 'distributor', letter: 'D', title: 'Distributor', blurb: 'Supplies wholesaler',        color: '#9a7b2c' },
-  { name: 'factory',     letter: 'F', title: 'Factory',     blurb: 'Production & lead time',     color: '#b54a3f' },
-];
+import { DEMAND_PROFILE_OPTIONS, AI_STYLE_OPTIONS } from './demandProfilesMeta';
 
 export function WelcomeScreen({ onStart }) {
-  const [mode, setMode] = useState(null); // 'solo' | 'full' | 'create' | 'join'
+  const [mode, setMode] = useState(null);
   const [selectedRole, setSelectedRole] = useState(null);
   const [playerName, setPlayerName] = useState('');
   const [joinCode, setJoinCode] = useState('');
-  const [takenRoles, setTakenRoles] = useState([]);
-  const [sessionId, setSessionId] = useState(null);
+  const [numTeams, setNumTeams] = useState(2);
+  const [demandProfile, setDemandProfile] = useState('classic');
+  const [aiStyle, setAiStyle] = useState('standard');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // When join mode and code changes, fetch taken roles
-  const handleCodeChange = async (code) => {
-    setJoinCode(code);
-    setSelectedRole(null);
-    setError(null);
-    if (code.length === 6) {
-      try {
-        const { data: session } = await import('./supabase').then(m =>
-          m.supabase.from('sessions').select('id').eq('code', code.toUpperCase()).single()
-        );
-        if (session) {
-          setSessionId(session.id);
-          const taken = await getTakenRoles(session.id);
-          setTakenRoles(taken);
-        }
-      } catch {
-        setTakenRoles([]);
-      }
-    }
-  };
+  const ROLES = [
+    { name: 'retailer',    letter: 'R', color: '#4a6fa5', blurb: 'End-customer demand' },
+    { name: 'wholesaler',  letter: 'W', color: '#2a6f62', blurb: 'Supplies retailer' },
+    { name: 'distributor', letter: 'D', color: '#9a7b2c', blurb: 'Supplies wholesaler' },
+    { name: 'factory',     letter: 'F', color: '#b54a3f', blurb: 'Production & lead time' },
+  ];
+
+  const canStart =
+    (mode === 'solo' && selectedRole && playerName.trim()) ||
+    (mode === 'full') ||
+    (mode === 'create' && playerName.trim()) ||
+    (mode === 'join' && playerName.trim() && joinCode.length === 6) ||
+    (mode === 'tournament_create') ||
+    (mode === 'tournament_join' && playerName.trim() && joinCode.length === 6);
 
   const handleStart = async () => {
     setLoading(true);
@@ -49,21 +39,64 @@ export function WelcomeScreen({ onStart }) {
 
     try {
       if (mode === 'solo') {
-        onStart({ mode: 'solo', playerRole: selectedRole });
+        onStart({ mode: 'solo', playerRole: selectedRole, playerName: playerName.trim() });
 
       } else if (mode === 'full') {
         onStart({ mode: 'full', playerRole: null });
 
       } else if (mode === 'create') {
-        // Instructor creates a session
         const session = await createSession();
-        onStart({ mode: 'multiplayer', playerRole: null, session, player: null, isCreator: true });
+        onStart({
+          mode: 'multiplayer',
+          playerRole: null,
+          session,
+          player: null,
+          isCreator: true,
+        });
 
       } else if (mode === 'join') {
-        // Player joins a session
-        const name = playerName.trim() || 'Player';
-        const { session, player } = await joinSession(joinCode, selectedRole, name);
-        onStart({ mode: 'multiplayer', playerRole: selectedRole, session, player });
+        const { session, player } = await joinSession(joinCode, playerName.trim());
+        onStart({
+          mode: 'multiplayer',
+          playerRole: player.role,
+          session,
+          player,
+          isCreator: false,
+        });
+
+      } else if (mode === 'tournament_create') {
+        const { tournament, sessions } = await createTournament(numTeams, {
+          demandProfile,
+          aiStyle,
+        });
+        if (tournament == null || tournament.id == null || tournament.id === '' || !tournament.code) {
+          throw new Error(
+            'Tournament was created but the server response was incomplete. Check Supabase RLS policies allow read after insert on tournaments.'
+          );
+        }
+        onStart({
+          mode: 'tournament',
+          tournament,
+          sessions,
+          player: null,
+          session: null,
+          isCreator: true,
+        });
+
+      } else if (mode === 'tournament_join') {
+        const { tournament, session, player } = await joinTournament(
+          joinCode,
+          playerName.trim()
+        );
+        onStart({
+          mode: 'tournament',
+          tournament,
+          sessions: null,
+          session,
+          player,
+          playerRole: player.role,
+          isCreator: false,
+        });
       }
     } catch (err) {
       setError(err.message);
@@ -72,19 +105,14 @@ export function WelcomeScreen({ onStart }) {
     }
   };
 
-  const canStart =
-    (mode === 'solo' && selectedRole) ||
-    (mode === 'full') ||
-    (mode === 'create') ||
-    (mode === 'join' && selectedRole && joinCode.length === 6);
-
   const startLabel = () => {
     if (loading) return 'Please wait...';
-    if (mode === 'solo' && selectedRole)
-      return `Play as ${selectedRole.charAt(0).toUpperCase() + selectedRole.slice(1)} →`;
+    if (mode === 'solo' && selectedRole) return `Play as ${selectedRole} →`;
     if (mode === 'full') return 'Start full game →';
     if (mode === 'create') return 'Create session →';
-    if (mode === 'join' && canStart) return 'Join session →';
+    if (mode === 'join') return 'Join session →';
+    if (mode === 'tournament_create') return `Create tournament (${numTeams} teams) →`;
+    if (mode === 'tournament_join') return 'Join tournament →';
     return 'Select a mode to start';
   };
 
@@ -116,48 +144,27 @@ export function WelcomeScreen({ onStart }) {
         <div className="ma-welcome-card">
           <h2>Choose your mode</h2>
           <div style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 1fr',
-            gap: '0.75rem',
-            marginTop: '1rem'
+            display: 'grid', gridTemplateColumns: '1fr 1fr',
+            gap: '0.75rem', marginTop: '1rem'
           }}>
             {[
-              {
-                key: 'solo',
-                icon: '🎮',
-                title: 'Solo Play',
-                blurb: 'You control one role. AI manages the other 3 tiers.'
-              },
-              {
-                key: 'full',
-                icon: '🎯',
-                title: 'Full Control',
-                blurb: 'You control all 4 roles. Great for demos.'
-              },
-              {
-                key: 'create',
-                icon: '🏫',
-                title: 'Create Session',
-                blurb: 'Instructor: create a session and share the code.'
-              },
-              {
-                key: 'join',
-                icon: '🔗',
-                title: 'Join Session',
-                blurb: 'Player: enter a session code from your instructor.'
-              },
+              { key: 'solo',              icon: '🎮', title: 'Solo Play',        blurb: 'You control one role. AI manages the other 3.' },
+              { key: 'full',              icon: '🎯', title: 'Full Control',      blurb: 'Control all 4 roles. Great for demos.' },
+              { key: 'create',            icon: '🏫', title: 'Create Session',    blurb: 'Instructor: create a 4-player session.' },
+              { key: 'join',              icon: '🔗', title: 'Join Session',      blurb: 'Enter a session code. Role auto-assigned.' },
+              { key: 'tournament_create', icon: '🏆', title: 'Create Tournament', blurb: 'Multiple teams compete simultaneously.' },
+              { key: 'tournament_join',   icon: '🎽', title: 'Join Tournament',   blurb: 'Enter a code. Auto-assigned to a team and role.' },
             ].map(m => (
               <button
                 key={m.key}
                 type="button"
-                onClick={() => { setMode(m.key); setSelectedRole(null); setError(null); }}
+                onClick={() => { setMode(m.key); setError(null); setJoinCode(''); setSelectedRole(null); }}
                 style={{
                   padding: '1rem',
                   border: `2px solid ${mode === m.key ? '#2f6f9f' : 'rgba(28,45,74,0.2)'}`,
                   borderRadius: '10px',
                   background: mode === m.key ? '#f0f7ff' : 'white',
-                  cursor: 'pointer',
-                  textAlign: 'left'
+                  cursor: 'pointer', textAlign: 'left'
                 }}
               >
                 <div style={{ fontWeight: 700, fontSize: '14px', marginBottom: '4px' }}>
@@ -171,12 +178,32 @@ export function WelcomeScreen({ onStart }) {
           </div>
         </div>
 
-        {/* Solo: role picker */}
+        {/* Player name */}
+        {mode && mode !== 'full' && mode !== 'tournament_create' && (
+          <div className="ma-welcome-card">
+            <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>
+              Your name
+            </label>
+            <input
+              type="text"
+              placeholder="Enter your name"
+              value={playerName}
+              onChange={e => setPlayerName(e.target.value)}
+              style={{
+                width: '100%', padding: '10px 12px',
+                border: '2px solid #d1d5db', borderRadius: '8px',
+                fontSize: '14px', fontFamily: 'inherit'
+              }}
+            />
+          </div>
+        )}
+
+        {/* Solo role picker */}
         {mode === 'solo' && (
           <div className="ma-welcome-card">
             <h2>Pick your role</h2>
             <p style={{ fontSize: '13px', color: '#5a6578', margin: '0.5rem 0 1rem' }}>
-              AI ghost players will manage the other 3 tiers automatically.
+              AI ghost players will manage the other 3 tiers.
             </p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
               {ROLES.map(role => (
@@ -189,8 +216,7 @@ export function WelcomeScreen({ onStart }) {
                     border: `2px solid ${selectedRole === role.name ? role.color : 'rgba(28,45,74,0.15)'}`,
                     borderRadius: '10px',
                     background: selectedRole === role.name ? `${role.color}12` : 'white',
-                    cursor: 'pointer',
-                    textAlign: 'left'
+                    cursor: 'pointer', textAlign: 'left'
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
@@ -198,11 +224,13 @@ export function WelcomeScreen({ onStart }) {
                       width: '26px', height: '26px', borderRadius: '50%',
                       background: role.color, color: 'white',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: '12px', fontWeight: 700, flexShrink: 0
+                      fontSize: '12px', fontWeight: 700
                     }}>
                       {role.letter}
                     </span>
-                    <span style={{ fontWeight: 700, fontSize: '14px' }}>{role.title}</span>
+                    <span style={{ fontWeight: 700, fontSize: '14px', textTransform: 'capitalize' }}>
+                      {role.name}
+                    </span>
                   </div>
                   <p style={{ fontSize: '12px', color: '#5a6578', lineHeight: 1.5, margin: 0 }}>
                     {role.blurb}
@@ -213,125 +241,203 @@ export function WelcomeScreen({ onStart }) {
           </div>
         )}
 
-        {/* Create session: nothing extra to fill */}
+        {/* Create session info */}
         {mode === 'create' && (
-          <div className="ma-welcome-card" style={{
-            background: '#f0f7ff',
-            border: '1px solid #bae6fd'
-          }}>
+          <div className="ma-welcome-card" style={{ background: '#f0f7ff', border: '1px solid #bae6fd' }}>
             <h2 style={{ color: '#0c4a6e' }}>Creating a session</h2>
             <p style={{ fontSize: '13px', color: '#0369a1', marginTop: '0.5rem', lineHeight: 1.6 }}>
-              Click "Create session" below. You'll get a 6-digit code to share
-              with your 4 players. Once all players join, you can start the game.
+              You'll get a 6-digit code to share with up to 4 players.
+              Roles are <strong>auto-assigned randomly</strong> — anonymous until debrief.
             </p>
           </div>
         )}
 
-        {/* Join session: code input + role picker */}
+        {/* Join session code input */}
         {mode === 'join' && (
           <div className="ma-welcome-card">
             <h2>Join a session</h2>
-
-            <div style={{ marginTop: '1rem', marginBottom: '1.25rem' }}>
-              <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>
-                Your name
-              </label>
-              <input
-                type="text"
-                placeholder="Enter your name"
-                value={playerName}
-                onChange={e => setPlayerName(e.target.value)}
-                style={{
-                  width: '100%', padding: '10px 12px',
-                  border: '2px solid #d1d5db', borderRadius: '8px',
-                  fontSize: '14px', fontFamily: 'inherit'
-                }}
-              />
-            </div>
-
-            <div style={{ marginBottom: '1.25rem' }}>
-              <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>
-                Session code
-              </label>
-              <input
-                type="text"
-                placeholder="Enter 6-digit code (e.g. X7M3K9)"
-                value={joinCode}
-                onChange={e => handleCodeChange(e.target.value.toUpperCase())}
-                maxLength={6}
-                style={{
-                  width: '100%', padding: '10px 12px',
-                  border: '2px solid #d1d5db', borderRadius: '8px',
-                  fontSize: '18px', fontFamily: 'monospace',
-                  letterSpacing: '0.2em', textTransform: 'uppercase'
-                }}
-              />
-            </div>
-
-            {joinCode.length === 6 && (
-              <div>
-                <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '8px' }}>
-                  Pick your role
-                </label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                  {ROLES.map(role => {
-                    const taken = takenRoles.includes(role.name);
-                    return (
-                      <button
-                        key={role.name}
-                        type="button"
-                        disabled={taken}
-                        onClick={() => !taken && setSelectedRole(role.name)}
-                        style={{
-                          padding: '0.75rem',
-                          border: `2px solid ${selectedRole === role.name
-                            ? role.color
-                            : taken ? '#e5e7eb' : 'rgba(28,45,74,0.15)'}`,
-                          borderRadius: '10px',
-                          background: taken ? '#f3f4f6'
-                            : selectedRole === role.name ? `${role.color}12` : 'white',
-                          cursor: taken ? 'not-allowed' : 'pointer',
-                          opacity: taken ? 0.5 : 1,
-                          textAlign: 'left'
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <span style={{
-                            width: '24px', height: '24px', borderRadius: '50%',
-                            background: taken ? '#9ca3af' : role.color,
-                            color: 'white',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: '11px', fontWeight: 700, flexShrink: 0
-                          }}>
-                            {role.letter}
-                          </span>
-                          <div>
-                            <div style={{ fontSize: '13px', fontWeight: 700, textTransform: 'capitalize' }}>
-                              {role.name}
-                            </div>
-                            <div style={{ fontSize: '11px', color: '#6b7280' }}>
-                              {taken ? 'Already taken' : role.blurb}
-                            </div>
-                          </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+            <p style={{ fontSize: '13px', color: '#5a6578', margin: '0.5rem 0 1rem' }}>
+              Your role will be <strong>randomly assigned</strong> when you join.
+            </p>
+            <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>
+              Session code
+            </label>
+            <input
+              type="text"
+              placeholder="Enter 6-digit code"
+              value={joinCode}
+              onChange={e => setJoinCode(e.target.value.toUpperCase())}
+              maxLength={6}
+              style={{
+                width: '100%', padding: '10px 12px',
+                border: '2px solid #d1d5db', borderRadius: '8px',
+                fontSize: '20px', fontFamily: 'monospace',
+                letterSpacing: '0.2em', textTransform: 'uppercase'
+              }}
+            />
           </div>
         )}
 
-        {/* Error message */}
+        {/* Tournament create settings */}
+        {mode === 'tournament_create' && (
+          <div className="ma-welcome-card">
+            <h2>Tournament settings</h2>
+            <p style={{ fontSize: '13px', color: '#5a6578', margin: '0.5rem 0 1.25rem', lineHeight: 1.6 }}>
+              All teams play simultaneously with the same demand curve.
+              Roles are auto-assigned anonymously. Empty slots become AI players.
+            </p>
+            <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '8px' }}>
+              Number of teams
+            </label>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              {[2, 3, 4, 5, 6, 8].map(n => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setNumTeams(n)}
+                  style={{
+                    padding: '8px 18px',
+                    border: `2px solid ${numTeams === n ? '#2f6f9f' : '#d1d5db'}`,
+                    borderRadius: '8px',
+                    background: numTeams === n ? '#f0f7ff' : 'white',
+                    cursor: 'pointer',
+                    fontWeight: numTeams === n ? 700 : 400,
+                    fontSize: '15px',
+                    color: numTeams === n ? '#2f6f9f' : '#374151'
+                  }}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+            <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '0.75rem' }}>
+              {numTeams} teams × 4 roles = up to {numTeams * 4} players total
+            </p>
+
+            <label style={{
+              fontSize: '13px', fontWeight: 600, display: 'block',
+              marginBottom: '6px', marginTop: '1.25rem',
+            }}>
+              Customer demand pattern
+            </label>
+            <p style={{ fontSize: '12px', color: '#6b7280', margin: '0 0 0.75rem', lineHeight: 1.55 }}>
+              Same curve for every team — pick a scenario to study how demand shape interacts with
+              ordering delays (bullwhip). Tip: open the reference links after you choose.
+            </p>
+            <select
+              value={demandProfile}
+              onChange={e => setDemandProfile(e.target.value)}
+              style={{
+                width: '100%', padding: '10px 12px', marginBottom: '0.75rem',
+                border: '2px solid #d1d5db', borderRadius: '8px',
+                fontSize: '14px', fontFamily: 'inherit', background: 'white',
+              }}
+            >
+              {DEMAND_PROFILE_OPTIONS.map(opt => (
+                <option key={opt.id} value={opt.id}>{opt.label}</option>
+              ))}
+            </select>
+            <div style={{
+              fontSize: '12px', color: '#5a6578', lineHeight: 1.55,
+              background: '#f9fafb', borderRadius: '8px', padding: '0.75rem 1rem',
+              marginBottom: '1rem',
+            }}>
+              {DEMAND_PROFILE_OPTIONS.find(o => o.id === demandProfile)?.short}
+              <div style={{ marginTop: '0.5rem' }}>
+                <em>Bullwhip:</em>{' '}
+                {DEMAND_PROFILE_OPTIONS.find(o => o.id === demandProfile)?.bullwhipNote}
+              </div>
+              {DEMAND_PROFILE_OPTIONS.find(o => o.id === demandProfile)?.learnMoreUrl && (
+                <a
+                  href={DEMAND_PROFILE_OPTIONS.find(o => o.id === demandProfile).learnMoreUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: '12px', color: '#2f6f9f', marginTop: '0.5rem', display: 'inline-block' }}
+                >
+                  {DEMAND_PROFILE_OPTIONS.find(o => o.id === demandProfile).learnMoreLabel} ↗
+                </a>
+              )}
+            </div>
+
+            <label style={{
+              fontSize: '13px', fontWeight: 600, display: 'block',
+              marginBottom: '6px',
+            }}>
+              AI teammate behavior (empty slots)
+            </label>
+            <p style={{ fontSize: '12px', color: '#6b7280', margin: '0 0 0.75rem', lineHeight: 1.55 }}>
+              Ghost players use an order-up-to policy with different biases — compare how cautious vs
+              aggressive ordering amplifies swings upstream.
+            </p>
+            <select
+              value={aiStyle}
+              onChange={e => setAiStyle(e.target.value)}
+              style={{
+                width: '100%', padding: '10px 12px', marginBottom: '0.75rem',
+                border: '2px solid #d1d5db', borderRadius: '8px',
+                fontSize: '14px', fontFamily: 'inherit', background: 'white',
+              }}
+            >
+              {AI_STYLE_OPTIONS.map(opt => (
+                <option key={opt.id} value={opt.id}>{opt.label}</option>
+              ))}
+            </select>
+            <div style={{
+              fontSize: '12px', color: '#5a6578', lineHeight: 1.55,
+              background: '#f9fafb', borderRadius: '8px', padding: '0.75rem 1rem',
+            }}>
+              {AI_STYLE_OPTIONS.find(o => o.id === aiStyle)?.short}
+              <div style={{ marginTop: '0.5rem' }}>
+                <em>Note:</em>{' '}
+                {AI_STYLE_OPTIONS.find(o => o.id === aiStyle)?.bullwhipNote}
+              </div>
+              {AI_STYLE_OPTIONS.find(o => o.id === aiStyle)?.learnMoreUrl && (
+                <a
+                  href={AI_STYLE_OPTIONS.find(o => o.id === aiStyle).learnMoreUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ fontSize: '12px', color: '#2f6f9f', marginTop: '0.5rem', display: 'inline-block' }}
+                >
+                  {AI_STYLE_OPTIONS.find(o => o.id === aiStyle).learnMoreLabel} ↗
+                </a>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Tournament join */}
+        {mode === 'tournament_join' && (
+          <div className="ma-welcome-card">
+            <h2>Join a tournament</h2>
+            <p style={{ fontSize: '13px', color: '#5a6578', margin: '0.5rem 0 1rem', lineHeight: 1.6 }}>
+              You'll be <strong>auto-assigned to a team and role</strong>.
+              Your role stays anonymous until the debrief.
+            </p>
+            <label style={{ fontSize: '13px', fontWeight: 600, display: 'block', marginBottom: '6px' }}>
+              Tournament code
+            </label>
+            <input
+              type="text"
+              placeholder="Enter 6-digit code"
+              value={joinCode}
+              onChange={e => setJoinCode(e.target.value.toUpperCase())}
+              maxLength={6}
+              style={{
+                width: '100%', padding: '10px 12px',
+                border: '2px solid #d1d5db', borderRadius: '8px',
+                fontSize: '20px', fontFamily: 'monospace',
+                letterSpacing: '0.2em', textTransform: 'uppercase'
+              }}
+            />
+          </div>
+        )}
+
+        {/* Error */}
         {error && (
           <div style={{
-            background: '#fef2f2',
-            border: '1px solid #fca5a5',
-            borderRadius: '8px',
-            padding: '0.75rem 1rem',
-            fontSize: '13px',
-            color: '#dc2626'
+            background: '#fef2f2', border: '1px solid #fca5a5',
+            borderRadius: '8px', padding: '0.75rem 1rem',
+            fontSize: '13px', color: '#dc2626'
           }}>
             ⚠️ {error}
           </div>

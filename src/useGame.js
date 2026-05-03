@@ -1,14 +1,28 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import { createInitialGameState, TIERS } from './gameState';
 import { advanceRound } from './roundEngine';
 import { getDemandForRound } from './demandCurve';
 import { fillGhostOrders } from './ghostPlayer';
 
-export function useGame(playerRole = null) {
+/**
+ * @param {string|null} playerRole - solo human role, or null
+ * @param {object|null} simOptions - tournament / session simulation options
+ * @param {string} [simOptions.demandProfile]
+ * @param {number} [simOptions.demandSeed]
+ * @param {string} [simOptions.aiStyle]
+ */
+export function useGame(playerRole = null, simOptions = null) {
+  const demandProfile = simOptions?.demandProfile ?? 'classic';
+  const demandSeed = Number.isFinite(simOptions?.demandSeed) ? simOptions.demandSeed : 0;
+  const aiStyle = simOptions?.aiStyle ?? 'standard';
+
+  const demandCtx = useMemo(
+    () => ({ profile: demandProfile, seed: demandSeed }),
+    [demandProfile, demandSeed]
+  );
+
   const [game, setGame] = useState(createInitialGameState);
 
-  // Keep a ref that always has the latest game state
-  // This avoids stale closure issues in subscriptions
   const gameRef = useRef(game);
   gameRef.current = game;
 
@@ -23,29 +37,25 @@ export function useGame(playerRole = null) {
 
   const submitRound = useCallback(() => {
     setGame(prev => {
-      const demand = getDemandForRound(prev.round);
+      const demand = getDemandForRound(prev.round, demandCtx);
       let orders;
       if (playerRole) {
-        orders = fillGhostOrders(prev, playerRole, prev.pendingOrders);
+        orders = fillGhostOrders(prev, playerRole, prev.pendingOrders, aiStyle);
       } else {
         orders = fillMissingOrders(prev);
       }
       return advanceRound(prev, orders, demand);
     });
-  }, [playerRole]);
+  }, [playerRole, demandCtx, aiStyle]);
 
-  // Multiplayer: advance with specific orders from all players
-  // Takes current state from ref to avoid stale closures
-  // Returns the new state synchronously so it can be saved to Supabase
   const advanceWithOrders = useCallback((ordersMap) => {
     const currentGame = gameRef.current;
-    const demand = getDemandForRound(currentGame.round);
+    const demand = getDemandForRound(currentGame.round, demandCtx);
     const newState = advanceRound(currentGame, ordersMap, demand);
     setGame(newState);
-    return newState; // now synchronous — always returns the new state
-  }, []);
+    return newState;
+  }, [demandCtx]);
 
-  // Multiplayer: load state received from Supabase
   const loadExternalState = useCallback((externalState) => {
     setGame({
       ...externalState,
@@ -69,7 +79,9 @@ export function useGame(playerRole = null) {
     advanceWithOrders,
     loadExternalState,
     resetGame,
-    totalSystemCost
+    totalSystemCost,
+    demandContext: demandCtx,
+    aiStyle,
   };
 }
 

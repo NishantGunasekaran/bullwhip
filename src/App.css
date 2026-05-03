@@ -760,6 +760,168 @@
   margin-top: 0.35rem;
 }
 
+/* Tournament debrief comparison */
+.ma-over-tournament {
+  background: var(--ma-panel);
+  border: 1px solid rgba(28, 45, 74, 0.12);
+  border-radius: 10px;
+  padding: 1.25rem 1.35rem;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 4px 14px rgba(28, 45, 74, 0.06);
+}
+
+.ma-over-tournament h2 {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ma-muted);
+  margin: 0 0 0.5rem;
+}
+
+.ma-over-tournament-desc {
+  font-size: 0.8125rem;
+  color: var(--ma-muted);
+  margin: 0 0 1rem;
+  line-height: 1.55;
+}
+
+.ma-over-tournament-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.ma-over-tournament-table th {
+  text-align: left;
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ma-muted);
+  padding: 0.5rem 0.75rem 0.5rem 0;
+  border-bottom: 1px solid rgba(28, 45, 74, 0.12);
+}
+
+.ma-over-tournament-th-num {
+  text-align: right;
+}
+
+.ma-over-tournament-table td {
+  padding: 0.65rem 0.75rem 0.65rem 0;
+  border-bottom: 1px solid rgba(28, 45, 74, 0.08);
+  vertical-align: top;
+}
+
+.ma-over-tournament-table tr:last-child td {
+  border-bottom: none;
+}
+
+.ma-over-tournament-table tr.ma-over-tournament-you td {
+  background: rgba(47, 111, 159, 0.07);
+}
+
+.ma-over-tournament-rank {
+  width: 3rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ma-over-tournament-rank-main {
+  font-size: 1.125rem;
+  line-height: 1.2;
+}
+
+.ma-over-tournament-name {
+  font-weight: 500;
+  color: var(--ma-muted);
+}
+
+.ma-over-tournament-you-badge {
+  margin-left: 0.5rem;
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ma-btn);
+  background: rgba(47, 111, 159, 0.12);
+  padding: 2px 8px;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+.ma-over-tournament-meta {
+  font-size: 0.6875rem;
+  color: var(--ma-muted);
+  margin-top: 0.2rem;
+}
+
+.ma-over-tournament-bar {
+  margin-top: 0.45rem;
+  height: 6px;
+  background: #f3f4f6;
+  border-radius: 4px;
+  overflow: hidden;
+  max-width: 12rem;
+}
+
+.ma-over-tournament-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--ma-btn), #5a9fd4);
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+.ma-over-tournament-cost {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ma-over-tournament-spread {
+  font-size: 0.8125rem;
+  color: var(--ma-muted);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.ma-over-team-picker {
+  background: var(--ma-panel);
+  border: 1px solid rgba(28, 45, 74, 0.12);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  box-shadow: 0 2px 8px rgba(28, 45, 74, 0.05);
+}
+
+.ma-over-team-picker label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ma-text);
+  margin: 0;
+}
+
+.ma-over-team-select {
+  min-width: 12rem;
+  flex: 1;
+  max-width: 24rem;
+  padding: 0.55rem 0.85rem;
+  font-size: 0.875rem;
+  font-family: inherit;
+  border: 2px solid rgba(28, 45, 74, 0.2);
+  border-radius: 8px;
+  background: white;
+  color: var(--ma-text);
+  cursor: pointer;
+}
+
+.ma-over-team-picker-hint {
+  font-size: 0.8125rem;
+  color: var(--ma-muted);
+}
+
 .ma-summary-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));

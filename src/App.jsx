@@ -1,20 +1,24 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useGame } from './useGame';
 import { TIERS } from './gameState';
-import { getDemandForRound } from './demandCurve';
+import { getDemandForRound, hashStringToSeed } from './demandCurve';
 import { WelcomeScreen } from './WelcomeScreen';
 import { GameOverScreen } from './GameOverScreen';
 import { MultiplayerLobby } from './MultiplayerLobby';
+import { TournamentLobby } from './TournamentLobby';
 import { BullwhipChart } from './BullwhipChart';
 import { ghostOrder } from './ghostPlayer';
+import { runAllAutoSessions } from './autoPlay';
 import {
   submitOrder,
   getOrdersForRound,
   saveGameState,
   updateSession,
+  getTournamentSessions,
   subscribeToOrders,
   subscribeToSession,
   subscribeToGameRounds,
+  subscribeToTournamentSessions,
 } from './sessionService';
 import './App.css';
 
@@ -57,16 +61,41 @@ function App() {
   const [submittedRoles, setSubmittedRoles] = useState([]);
   const [myOrderSubmitted, setMyOrderSubmitted] = useState(false);
   const [statusMsg, setStatusMsg] = useState('');
+  const [autoRunning, setAutoRunning] = useState(false);
+
+  // Bug 2 fix: track actual team rounds from DB for instructor view
+  const [teamProgress, setTeamProgress] = useState([]);
 
   const advancingRef = useRef(false);
+  const tournamentAutoRunStartedRef = useRef(false);
 
   const playerRole = gameConfig?.playerRole ?? null;
   const isMultiplayer = gameConfig?.mode === 'multiplayer';
+  const isTournament = gameConfig?.mode === 'tournament';
+  const isMultiplayerOrTournament = isMultiplayer || isTournament;
   const isSolo = gameConfig?.mode === 'solo';
   const session = gameConfig?.session;
-  const player = gameConfig?.player;
-  const isInstructor = isMultiplayer && !playerRole;
-  const ghostRoles = gameConfig?.ghostRoles || [];
+  const isInstructor = isMultiplayerOrTournament && !playerRole;
+  const ghostRoles = gameConfig?.ghostRoles ?? [];
+  const ghostRolesKey = ghostRoles.join(',');
+
+  const tournamentSimOptions = useMemo(() => {
+    const t = gameConfig?.tournament;
+    if (!t?.id) return null;
+    return {
+      demandProfile: t.demand_profile ?? t.demandProfile ?? 'classic',
+      demandSeed: hashStringToSeed(String(t.id)),
+      aiStyle: t.ai_style ?? t.aiStyle ?? 'standard',
+    };
+  }, [
+    gameConfig?.tournament?.id,
+    gameConfig?.tournament?.demand_profile,
+    gameConfig?.tournament?.demandProfile,
+    gameConfig?.tournament?.ai_style,
+    gameConfig?.tournament?.aiStyle,
+  ]);
+
+  const simOptions = isTournament ? tournamentSimOptions : null;
 
   const {
     game,
@@ -76,81 +105,135 @@ function App() {
     advanceWithOrders,
     loadExternalState,
     resetGame,
-    totalSystemCost
-  } = useGame(isSolo ? playerRole : null);
+    totalSystemCost,
+    demandContext,
+    aiStyle,
+  } = useGame(isSolo ? playerRole : null, simOptions);
 
-  // Keep refs for values used inside subscription callbacks
-  // This prevents stale closure bugs
   const playerRoleRef = useRef(playerRole);
   playerRoleRef.current = playerRole;
   const isInstructorRef = useRef(isInstructor);
   isInstructorRef.current = isInstructor;
-  const ghostRolesRef = useRef(ghostRoles);
-  ghostRolesRef.current = ghostRoles;
 
-  // ── Auto-submit ghost orders each round ────────────────────
+  // ── Load and track real team progress for instructor ────────
   useEffect(() => {
-    if (!isMultiplayer || !session || multiplayerState !== 'playing') return;
-    if (ghostRoles.length === 0) return;
-    if (game.phase === 'gameover') return; // stop after round 20
+    // Only after the tournament actually starts — avoids duplicate Realtime channels
+    // with TournamentLobby while the instructor is still on the setup screen.
+    if (!isTournament || !isInstructor || !gameConfig?.tournament || multiplayerState !== 'playing') return;
 
-    const amIResponsibleForGhosts = playerRole === LEADER_ROLE || isInstructor;
-    if (!amIResponsibleForGhosts) return;
+    const loadProgress = async () => {
+      const sessions = await getTournamentSessions(gameConfig.tournament.id);
+      setTeamProgress(sessions.map(s => ({
+        id: s.id,
+        teamNumber: s.team_number,
+        round: s.round || 0,
+        status: s.status,
+      })));
+    };
+
+    loadProgress();
+
+    const sub = subscribeToTournamentSessions(gameConfig.tournament.id, () => {
+      loadProgress();
+    });
+
+    const interval = setInterval(loadProgress, 5000);
+
+    return () => {
+      sub.unsubscribe();
+      clearInterval(interval);
+    };
+  }, [isTournament, isInstructor, gameConfig?.tournament?.id, multiplayerState]);
+
+  // ── Auto-run all-AI sessions ─────────────────────────────────
+  useEffect(() => {
+    if (!isTournament || !isInstructor || multiplayerState !== 'playing') return;
+    if (tournamentAutoRunStartedRef.current) return;
+
+    const allSessions = gameConfig?.allSessions || [];
+    const sessionGhostRoles = gameConfig?.sessionGhostRoles || {};
+
+    const hasAllAI = allSessions.some(s => (sessionGhostRoles[s.id] || []).length === 4);
+    if (!hasAllAI) return;
+
+    tournamentAutoRunStartedRef.current = true;
+    setAutoRunning(true);
+    const t = gameConfig?.tournament;
+    const runOpts = t?.id
+      ? {
+          demandContext: {
+            profile: t.demand_profile ?? t.demandProfile ?? 'classic',
+            seed: hashStringToSeed(String(t.id)),
+          },
+          aiStyle: t.ai_style ?? t.aiStyle ?? 'standard',
+        }
+      : {};
+
+    runAllAutoSessions(allSessions, sessionGhostRoles, runOpts)
+      .then(() => setAutoRunning(false))
+      .catch(err => {
+        console.error('Auto-run error:', err);
+        setAutoRunning(false);
+      });
+  }, [isTournament, isInstructor, multiplayerState, gameConfig?.allSessions, gameConfig?.sessionGhostRoles]);
+
+  // ── Ghost auto-submit ────────────────────────────────────────
+  useEffect(() => {
+    if (!isMultiplayerOrTournament || !session || multiplayerState !== 'playing') return;
+    if (ghostRoles.length === 0) return;
+    if (game.phase === 'gameover') return;
+
+    const amIResponsible = playerRole === LEADER_ROLE || isInstructor;
+    if (!amIResponsible) return;
 
     const currentRound = game.round;
-
     const autoSubmitGhosts = async () => {
       for (const role of ghostRoles) {
         const tier = game.tiers[role];
         if (!tier) continue;
-        const qty = ghostOrder(tier);
+        const qty = ghostOrder(tier, aiStyle);
         try {
           await submitOrder(session.id, currentRound, role, qty);
-        } catch {
-          // Already submitted for this round — ignore
-        }
+        } catch { /* already submitted */ }
       }
     };
-
     autoSubmitGhosts();
-  }, [game.round, isMultiplayer, multiplayerState]);
+  }, [
+    game.round,
+    game.phase,
+    ghostRolesKey,
+    session?.id,
+    playerRole,
+    isInstructor,
+    isMultiplayerOrTournament,
+    multiplayerState,
+    aiStyle,
+  ]);
 
-  // ── Multiplayer subscriptions ──────────────────────────────
-  // Subscribe once and use refs internally to avoid stale closures
+  // ── Multiplayer subscriptions ────────────────────────────────
   useEffect(() => {
-    if (!isMultiplayer || !session || multiplayerState !== 'playing') return;
-
+    if (!isMultiplayerOrTournament || !session || multiplayerState !== 'playing') return;
     const sessionId = session.id;
 
-    // When orders come in, check if all 4 submitted → advance round
     const orderSub = subscribeToOrders(sessionId, async () => {
       const currentRound = gameRef.current.round;
-
-      // Stop processing if game is already over
       if (gameRef.current.phase === 'gameover') return;
 
       const orders = await getOrdersForRound(sessionId, currentRound);
       const roles = orders.map(o => o.role);
       setSubmittedRoles([...roles]);
 
-      const allSubmitted = ALL_ROLES.every(r => roles.includes(r));
-      if (!allSubmitted) return;
+      if (!ALL_ROLES.every(r => roles.includes(r))) return;
       if (advancingRef.current) return;
 
-      const currentPlayerRole = playerRoleRef.current;
-      const currentIsInstructor = isInstructorRef.current;
-      const amILeader = currentPlayerRole === LEADER_ROLE || currentIsInstructor;
+      const amILeader = playerRoleRef.current === LEADER_ROLE || isInstructorRef.current;
       if (!amILeader) return;
 
       advancingRef.current = true;
-
       try {
         const ordersMap = {};
         orders.forEach(o => { ordersMap[o.role] = o.order_qty; });
-
-        // Advance the round — synchronous now, always returns newState
         const newState = advanceWithOrders(ordersMap);
-
         if (newState) {
           await saveGameState(sessionId, newState.round, newState);
           await updateSession(sessionId, {
@@ -158,44 +241,27 @@ function App() {
             status: newState.phase === 'gameover' ? 'finished' : 'playing'
           });
         } else {
-          console.error('advanceWithOrders returned undefined');
           advancingRef.current = false;
         }
       } catch (err) {
-        console.error('Error advancing round:', err);
+        console.error('Advance error:', err);
         advancingRef.current = false;
       }
     });
 
-    // When new game state is saved, non-leader players sync it
-    const roundSub = subscribeToGameRounds(sessionId, (payload) => {
+    const roundSub = subscribeToGameRounds(sessionId, payload => {
       const newState = payload.new?.game_state;
       if (!newState) return;
-
-      const currentPlayerRole = playerRoleRef.current;
-
-      // Non-leader players load state from DB
-      if (currentPlayerRole !== LEADER_ROLE) {
-        loadExternalState(newState);
-      }
-
-      // Reset round UI for everyone
+      if (playerRoleRef.current !== LEADER_ROLE) loadExternalState(newState);
       setSubmittedRoles([]);
       setMyOrderSubmitted(false);
       setStatusMsg('');
       advancingRef.current = false;
-
-      // Show game over message
-      if (newState.phase === 'gameover') {
-        setStatusMsg('Game over!');
-      }
+      if (newState.phase === 'gameover') setStatusMsg('Game over!');
     });
 
-    // Watch for session status changes
-    const sessionSub = subscribeToSession(sessionId, (payload) => {
-      if (payload.new?.status === 'finished') {
-        setStatusMsg('Game over!');
-      }
+    const sessionSub = subscribeToSession(sessionId, payload => {
+      if (payload.new?.status === 'finished') setStatusMsg('Game over!');
     });
 
     return () => {
@@ -203,7 +269,7 @@ function App() {
       roundSub.unsubscribe();
       sessionSub.unsubscribe();
     };
-  }, [isMultiplayer, session?.id, multiplayerState]);
+  }, [isMultiplayerOrTournament, session?.id, multiplayerState]);
 
   const handleReset = () => {
     resetGame();
@@ -211,31 +277,71 @@ function App() {
     setMultiplayerState('lobby');
     setSubmittedRoles([]);
     setMyOrderSubmitted(false);
+    setAutoRunning(false);
+    setTeamProgress([]);
     advancingRef.current = false;
+    tournamentAutoRunStartedRef.current = false;
   };
 
-  // ── Welcome screen ─────────────────────────────────────────
+  // ── Welcome ──────────────────────────────────────────────────
   if (!gameConfig) {
     return (
-      <WelcomeScreen onStart={(config) => {
+      <WelcomeScreen onStart={config => {
         setGameConfig(config);
         if (config.mode === 'multiplayer') setMultiplayerState('lobby');
+        if (config.mode === 'tournament') setMultiplayerState('lobby');
       }} />
     );
   }
 
-  // ── Multiplayer lobby ──────────────────────────────────────
+  // ── Tournament lobby ─────────────────────────────────────────
+  if (isTournament && multiplayerState === 'lobby') {
+    const tid = gameConfig.tournament?.id;
+    if (tid == null || tid === '') {
+      return (
+        <div className="ma-welcome" style={{ padding: '2rem', textAlign: 'center' }}>
+          <p style={{ marginBottom: '1rem', color: '#6b7280' }}>
+            Tournament data is missing. Please go back and try again.
+          </p>
+          <button type="button" className="ma-btn-start" onClick={handleReset}>
+            Back to menu
+          </button>
+        </div>
+      );
+    }
+    return (
+      <TournamentLobby
+        key={String(tid)}
+        tournament={gameConfig.tournament}
+        session={gameConfig.session}
+        player={gameConfig.player}
+        isCreator={gameConfig.isCreator}
+        onGameStart={({ ghostRoles: gr, allSessions, sessionGhostRoles, homeSession }) => {
+          setGameConfig(prev => ({
+            ...prev,
+            ghostRoles: gr,
+            allSessions: allSessions || prev.sessions || [],
+            sessionGhostRoles: sessionGhostRoles || {},
+            session: homeSession || prev.session,
+          }));
+          setMultiplayerState('playing');
+        }}
+      />
+    );
+  }
+
+  // ── Multiplayer lobby ────────────────────────────────────────
   if (isMultiplayer && multiplayerState === 'lobby') {
     return (
       <MultiplayerLobby
-        session={session}
-        player={player}
-        isCreator={gameConfig?.isCreator ?? false}
+        session={gameConfig.session}
+        player={gameConfig.player}
+        isCreator={gameConfig.isCreator}
         onGameStart={({ ghostRoles: gr }) => {
           setGameConfig(prev => ({ ...prev, ghostRoles: gr }));
           setMultiplayerState('playing');
         }}
-        onJoinAsPlayer={(newPlayer) => {
+        onJoinAsPlayer={newPlayer => {
           setGameConfig(prev => ({
             ...prev,
             player: newPlayer,
@@ -246,7 +352,7 @@ function App() {
     );
   }
 
-  // ── Game over screen ───────────────────────────────────────
+  // ── Game over ────────────────────────────────────────────────
   if (game.phase === 'gameover') {
     return (
       <GameOverScreen
@@ -254,31 +360,144 @@ function App() {
         resetGame={handleReset}
         totalSystemCost={totalSystemCost}
         playerRole={playerRole}
+        tournament={isTournament ? gameConfig.tournament : null}
+        mySessionId={isTournament ? gameConfig.session?.id : null}
       />
     );
   }
 
   const displayRound = game.round + 1;
   const lastDemand = game.round > 0 ? game.demandHistory[game.round - 1] : null;
-  const nextDemand = getDemandForRound(game.round + 1);
+  const nextDemand = getDemandForRound(
+    game.round + 1,
+    demandContext ?? { profile: 'classic', seed: 0 }
+  );
 
-  // ── Handle multiplayer order submission ────────────────────
+  // ── Bug 1 fix: instructor sees team progress dashboard ───────
+  if (isTournament && isInstructor && multiplayerState === 'playing') {
+    const allDone =
+      teamProgress.length > 0 && teamProgress.every(t => t.status === 'finished');
+
+    return (
+      <div className="ma-play">
+        <header className="ma-topbar">
+          <div className="ma-brand">
+            <span className="ma-logo">Beer Game</span>
+            <span className="ma-tagline">
+              Tournament · {gameConfig.tournament?.code} · Instructor view
+            </span>
+          </div>
+        </header>
+
+        <div style={{ maxWidth: '680px', margin: '2rem auto', padding: '0 1.5rem' }}>
+
+          {/* Status */}
+          <div style={{
+            background: autoRunning ? '#fffbeb' : allDone ? '#f0fdf4' : '#f0f7ff',
+            border: `1px solid ${autoRunning ? '#fde68a' : allDone ? '#86efac' : '#bae6fd'}`,
+            borderRadius: '10px', padding: '1rem 1.25rem',
+            marginBottom: '1.5rem', fontSize: '14px',
+            color: autoRunning ? '#78350f' : allDone ? '#065f46' : '#0369a1'
+          }}>
+            {autoRunning
+              ? '⚡ AI teams auto-playing through all 20 rounds...'
+              : allDone
+                ? '✅ All teams finished! Click any team to see their results.'
+                : `⏳ ${teamProgress.filter(t => t.status === 'playing').length} team(s) in progress...`}
+          </div>
+
+          {/* Bug 2 fix: real round progress from DB */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '2rem' }}>
+            {teamProgress.map(team => {
+              const pct = Math.min(100, Math.round((team.round / 20) * 100));
+              return (
+                <div
+                  key={team.id}
+                  style={{
+                    background: 'white',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '10px',
+                    padding: '1rem 1.25rem',
+                  }}
+                >
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between',
+                    alignItems: 'center', marginBottom: '0.75rem'
+                  }}>
+                    <div style={{ fontWeight: 700, fontSize: '15px' }}>
+                      Team {team.teamNumber}
+                    </div>
+                    <div style={{ fontSize: '13px', color: '#6b7280' }}>
+                      {team.status === 'finished'
+                        ? '✅ Finished'
+                        : team.status === 'playing'
+                          ? `Week ${team.round} / 20`
+                          : '⏸️ Not started'}
+                    </div>
+                  </div>
+
+                  {/* Real progress bar based on actual round */}
+                  <div style={{
+                    background: '#f3f4f6', borderRadius: '4px',
+                    height: '10px', overflow: 'hidden'
+                  }}>
+                    <div style={{
+                      width: `${pct}%`,
+                      height: '100%',
+                      background: team.status === 'finished' ? '#059669' : '#2f6f9f',
+                      borderRadius: '4px',
+                      transition: 'width 0.5s ease'
+                    }} />
+                  </div>
+
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between',
+                    marginTop: '4px', fontSize: '11px', color: '#9ca3af'
+                  }}>
+                    <span>Start</span>
+                    <span>{pct}% complete</span>
+                    <span>Week 20</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleReset}
+            style={{
+              width: '100%', padding: '12px',
+              fontSize: '14px', fontWeight: 600,
+              background: 'white', color: '#374151',
+              border: '1px solid #d1d5db', borderRadius: '8px', cursor: 'pointer'
+            }}
+          >
+            End tournament
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Multiplayer submit ───────────────────────────────────────
   const handleMultiplayerSubmit = async () => {
-    if (myOrderSubmitted) return;
-    if (!playerRole || !session) return;
-
+    if (myOrderSubmitted || !playerRole || !session) return;
     const orderQty = game.pendingOrders[playerRole] ?? 0;
     setMyOrderSubmitted(true);
     setStatusMsg(`Order of ${orderQty} submitted! Waiting for others...`);
-
     try {
       await submitOrder(session.id, game.round, playerRole, orderQty);
     } catch (err) {
-      console.error('Submit order error:', err);
+      console.error('Submit error:', err);
       setMyOrderSubmitted(false);
       setStatusMsg('Failed to submit. Please try again.');
     }
   };
+
+  // Bug 3 fix: tournament players only see their own card
+  const tiersToRender = (isTournament && playerRole) ? [playerRole] : TIERS;
+  const isSingleCard = tiersToRender.length === 1;
 
   return (
     <div className="ma-play">
@@ -288,9 +507,11 @@ function App() {
           <span className="ma-tagline">
             {isSolo
               ? `Solo · Playing as ${playerRole}`
-              : isMultiplayer
-                ? `Multiplayer · ${playerRole || 'Instructor'} · ${session?.code}`
-                : 'Full control mode'}
+              : isTournament
+                ? `Tournament · Team ${gameConfig.session?.team_number} · ${playerRole}`
+                : isMultiplayer
+                  ? `Multiplayer · ${playerRole || 'Instructor'} · ${session?.code}`
+                  : 'Full control mode'}
           </span>
         </div>
         <div className="ma-week-pill">
@@ -322,26 +543,26 @@ function App() {
               🤖 AI managing other tiers.
             </span>
           )}
+          {isTournament && playerRole && (
+            <span style={{ color: 'var(--ma-amber)', marginLeft: '8px' }}>
+              🎭 You are playing <strong style={{ textTransform: 'capitalize' }}>
+                {playerRole}
+              </strong> — Team {gameConfig.session?.team_number}.
+            </span>
+          )}
         </p>
 
-        {/* Multiplayer status banner */}
-        {isMultiplayer && (
+        {/* Status banner */}
+        {isMultiplayerOrTournament && (
           <div style={{
-            background: submittedRoles.length === 4
-              ? '#f0fdf4'
+            background: submittedRoles.length === 4 ? '#f0fdf4'
               : myOrderSubmitted ? '#fffbeb' : '#f0f9ff',
-            border: `1px solid ${submittedRoles.length === 4
-              ? '#86efac'
+            border: `1px solid ${submittedRoles.length === 4 ? '#86efac'
               : myOrderSubmitted ? '#fde68a' : '#bae6fd'}`,
-            borderRadius: '8px',
-            padding: '0.75rem 1rem',
-            marginBottom: '1rem',
-            fontSize: '13px',
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            gap: '0.5rem'
+            borderRadius: '8px', padding: '0.75rem 1rem',
+            marginBottom: '1rem', fontSize: '13px',
+            display: 'flex', justifyContent: 'space-between',
+            alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem'
           }}>
             <div>
               {statusMsg || (myOrderSubmitted
@@ -350,18 +571,13 @@ function App() {
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
               {ALL_ROLES.map(role => (
-                <span
-                  key={role}
-                  style={{
-                    padding: '2px 8px',
-                    borderRadius: '12px',
-                    fontSize: '11px',
-                    fontWeight: 600,
-                    background: submittedRoles.includes(role) ? '#dcfce7' : '#f3f4f6',
-                    color: submittedRoles.includes(role) ? '#166534' : '#6b7280',
-                    textTransform: 'capitalize'
-                  }}
-                >
+                <span key={role} style={{
+                  padding: '2px 8px', borderRadius: '12px', fontSize: '11px',
+                  fontWeight: 600,
+                  background: submittedRoles.includes(role) ? '#dcfce7' : '#f3f4f6',
+                  color: submittedRoles.includes(role) ? '#166534' : '#6b7280',
+                  textTransform: 'capitalize'
+                }}>
                   {submittedRoles.includes(role) ? '✅' : '⏳'} {role}
                   {ghostRoles.includes(role) ? ' 🤖' : ''}
                 </span>
@@ -370,12 +586,20 @@ function App() {
           </div>
         )}
 
-        <div className="ma-chain">
-          {TIERS.map((tierName, idx) => {
+        {/* Bug 3 fix: constrain single card width */}
+        <div
+          className="ma-chain"
+          style={isSingleCard ? {
+            maxWidth: '460px',
+            margin: '0 auto',
+            display: 'block',
+          } : {}}
+        >
+          {tiersToRender.map((tierName, idx) => {
             const tier = game.tiers[tierName];
             const isGhostSolo = isSolo && tierName !== playerRole;
-            const isGhostMulti = isMultiplayer && ghostRoles.includes(tierName);
-            const isMyRole = isMultiplayer && tierName === playerRole;
+            const isGhostMulti = isMultiplayerOrTournament && ghostRoles.includes(tierName);
+            const isMyRole = isMultiplayerOrTournament && tierName === playerRole;
             const isOtherHumanRole = isMultiplayer && !isMyRole && !isGhostMulti && !isInstructor;
             const [truckNextWeek, truckWeekAfter] = tier.incomingShipments || [0, 0];
 
@@ -385,26 +609,22 @@ function App() {
                 : (tier.incomingOrdersThisRound ?? 0);
 
             const outgoingOrderLabel =
-              tierName === 'factory'
-                ? 'Last to production'
-                : `Last to ${ORDER_TO[tierName]}`;
+              tierName === 'factory' ? 'Last to production' : `Last to ${ORDER_TO[tierName]}`;
 
             const prevInventory =
-              game.round > 0
-                ? (tier.inventoryHistory[game.round - 2] ?? 12)
-                : 12;
+              game.round > 0 ? (tier.inventoryHistory[game.round - 2] ?? 12) : 12;
 
             const roleSubmitted = submittedRoles.includes(tierName);
             const isDimmed = isGhostSolo || isGhostMulti || isOtherHumanRole;
 
             const showOrderInput =
-              (!isSolo && !isMultiplayer) ||
+              (!isSolo && !isMultiplayerOrTournament) ||
               (isSolo && !isGhostSolo) ||
-              (isMultiplayer && isMyRole);
+              (isMultiplayerOrTournament && isMyRole);
 
             return (
               <div className="ma-chain-seg" key={tierName}>
-                {idx > 0 && (
+                {!isSingleCard && idx > 0 && (
                   <div className="ma-flow" aria-hidden="true">
                     <span className="ma-flow-arrow">→</span>
                     <span className="ma-flow-label">Goods</span>
@@ -416,19 +636,15 @@ function App() {
                   style={{
                     opacity: isDimmed ? 0.7 : 1,
                     outline: (isMyRole || (isSolo && tierName === playerRole))
-                      ? `2px solid ${ROLE_COLOR[tierName]}`
-                      : 'none',
+                      ? `2px solid ${ROLE_COLOR[tierName]}` : 'none',
                     outlineOffset: '2px',
                   }}
                 >
                   <div className="ma-echelon-head">
                     <span
                       className="ma-letter"
-                      style={
-                        (isMyRole || (isSolo && tierName === playerRole))
-                          ? { background: ROLE_COLOR[tierName] }
-                          : {}
-                      }
+                      style={(isMyRole || (isSolo && tierName === playerRole))
+                        ? { background: ROLE_COLOR[tierName] } : {}}
                     >
                       {LETTER[tierName]}
                     </span>
@@ -445,7 +661,7 @@ function App() {
                             ← You
                           </span>
                         )}
-                        {isMultiplayer && roleSubmitted && (
+                        {isMultiplayerOrTournament && roleSubmitted && (
                           <span style={{ marginLeft: '6px', fontSize: '11px', color: 'var(--ma-ok)', fontWeight: 600 }}>
                             ✅
                           </span>
@@ -457,7 +673,6 @@ function App() {
 
                   <div className="ma-echelon-body">
                     <div className="ma-board-cards">
-
                       <div className="ma-board-card ma-board-card--order-in">
                         <div className="ma-board-card-cap">Customer order</div>
                         <div className="ma-board-card-val">{customerOrderThisWeek}</div>
@@ -491,35 +706,26 @@ function App() {
 
                         {game.round > 0 && (
                           <div style={{
-                            marginTop: '0.6rem',
-                            fontSize: '11px',
-                            color: 'var(--ma-muted)',
-                            lineHeight: 1.7,
-                            borderTop: '1px solid rgba(28,45,74,0.1)',
-                            paddingTop: '0.5rem'
+                            marginTop: '0.6rem', fontSize: '11px',
+                            color: 'var(--ma-muted)', lineHeight: 1.7,
+                            borderTop: '1px solid rgba(28,45,74,0.1)', paddingTop: '0.5rem'
                           }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                              <span>Prev stock</span>
-                              <strong>{prevInventory}</strong>
+                              <span>Prev stock</span><strong>{prevInventory}</strong>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--ma-ok)' }}>
-                              <span>+ Received</span>
-                              <strong>+{tier.lastOrderReceived}</strong>
+                              <span>+ Received</span><strong>+{tier.lastOrderReceived}</strong>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--ma-bad)' }}>
                               <span>− Shipped</span>
                               <strong>−{tier.shipmentHistory?.[game.round - 1] ?? 0}</strong>
                             </div>
                             <div style={{
-                              display: 'flex',
-                              justifyContent: 'space-between',
+                              display: 'flex', justifyContent: 'space-between',
                               borderTop: '1px solid rgba(28,45,74,0.12)',
-                              paddingTop: '2px',
-                              fontWeight: 700,
-                              color: 'var(--ma-text)'
+                              paddingTop: '2px', fontWeight: 700, color: 'var(--ma-text)'
                             }}>
-                              <span>= Now</span>
-                              <strong>{tier.inventory}</strong>
+                              <span>= Now</span><strong>{tier.inventory}</strong>
                             </div>
                           </div>
                         )}
@@ -545,7 +751,6 @@ function App() {
                       Cumulative cost: <strong>₹{Math.round(tier.totalCost)}</strong>
                     </div>
 
-                    {/* Order input — human players only */}
                     {showOrderInput && (
                       <div className="ma-board-card ma-board-card--place-order ma-order-zone">
                         <div className="ma-board-card-cap">Order</div>
@@ -558,29 +763,25 @@ function App() {
                           type="number"
                           min="0"
                           placeholder="0"
-                          disabled={isMultiplayer && myOrderSubmitted}
+                          disabled={isMultiplayerOrTournament && myOrderSubmitted}
                           value={game.pendingOrders[tierName] ?? ''}
-                          onChange={(e) => setOrder(tierName, e.target.value)}
+                          onChange={e => setOrder(tierName, e.target.value)}
                         />
                         <p className="ma-order-foot">
-                          {isMultiplayer && myOrderSubmitted
+                          {isMultiplayerOrTournament && myOrderSubmitted
                             ? '✅ Submitted — waiting for others'
                             : 'Leave blank to auto-order.'}
                         </p>
                       </div>
                     )}
 
-                    {/* Ghost AI badge */}
                     {(isGhostSolo || isGhostMulti) && (
                       <div style={{
                         background: 'rgba(28,45,74,0.04)',
                         border: '1px dashed rgba(28,45,74,0.2)',
-                        borderRadius: '8px',
-                        padding: '0.75rem',
-                        fontSize: '12px',
-                        color: 'var(--ma-muted)',
-                        textAlign: 'center',
-                        marginTop: '0.5rem'
+                        borderRadius: '8px', padding: '0.75rem',
+                        fontSize: '12px', color: 'var(--ma-muted)',
+                        textAlign: 'center', marginTop: '0.5rem'
                       }}>
                         🤖 AI ordering automatically
                         <br />
@@ -588,22 +789,16 @@ function App() {
                       </div>
                     )}
 
-                    {/* Other human player badge */}
                     {isOtherHumanRole && (
                       <div style={{
                         background: 'rgba(28,45,74,0.04)',
                         border: '1px dashed rgba(28,45,74,0.2)',
-                        borderRadius: '8px',
-                        padding: '0.75rem',
-                        fontSize: '12px',
-                        color: 'var(--ma-muted)',
-                        textAlign: 'center',
-                        marginTop: '0.5rem'
+                        borderRadius: '8px', padding: '0.75rem',
+                        fontSize: '12px', color: 'var(--ma-muted)',
+                        textAlign: 'center', marginTop: '0.5rem'
                       }}>
                         👤 Managed by another player
-                        {roleSubmitted && (
-                          <span style={{ color: 'var(--ma-ok)' }}> · ✅ Submitted</span>
-                        )}
+                        {roleSubmitted && <span style={{ color: 'var(--ma-ok)' }}> · ✅ Submitted</span>}
                       </div>
                     )}
                   </div>
@@ -614,8 +809,8 @@ function App() {
         </div>
       </div>
 
-      {/* Bottom submit button */}
-      {isMultiplayer ? (
+      {/* Submit button */}
+      {isMultiplayerOrTournament ? (
         <button
           type="button"
           className="ma-btn-week"
@@ -627,9 +822,9 @@ function App() {
           }}
         >
           {!playerRole
-            ? `👀 Instructor view — Week ${displayRound}`
+            ? `👀 Instructor — Week ${displayRound}`
             : myOrderSubmitted
-              ? `⏳ Waiting for others... (${submittedRoles.length}/4 submitted)`
+              ? `⏳ Waiting... (${submittedRoles.length}/4 submitted)`
               : `Submit my order — Week ${displayRound}`}
         </button>
       ) : (
