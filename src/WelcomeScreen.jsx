@@ -182,7 +182,6 @@ export function WelcomeScreen({ onStart }) {
             <li>Each week: receive goods, read orders, ship, then order upstream.</li>
             <li>Transport and order delays: <strong>2 weeks each</strong>.</li>
             <li>Holding <strong>₹0.50</strong>/unit/week · Backlog <strong>₹1.00</strong>/unit/week.</li>
-            <li>Smooth start: stock <strong>12</strong>, <strong>4</strong> in each pipeline slot.</li>
             <li>Goal: <strong>lowest total system cost</strong> over 20 weeks.</li>
           </ol>
         </div>
