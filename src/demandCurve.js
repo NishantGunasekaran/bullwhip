@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars -- scenario fns share (round, seed) signature */
 // ─── Demand scenarios ─────────────────────────────────────────
 // Each scenario is a function: (roundIndex0Based, seed) => demandQty
 // Seed makes "noisy" patterns deterministic so all tournament clients stay in sync.

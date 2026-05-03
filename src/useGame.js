@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo } from 'react';
+import { useState, useCallback, useRef, useMemo, useLayoutEffect } from 'react';
 import { createInitialGameState, TIERS } from './gameState';
 import { advanceRound } from './roundEngine';
 import { getDemandForRound } from './demandCurve';
@@ -24,7 +24,9 @@ export function useGame(playerRole = null, simOptions = null) {
   const [game, setGame] = useState(createInitialGameState);
 
   const gameRef = useRef(game);
-  gameRef.current = game;
+  useLayoutEffect(() => {
+    gameRef.current = game;
+  }, [game]);
 
   const setOrder = useCallback((tierName, qty) => {
     const numQty = Number(qty);

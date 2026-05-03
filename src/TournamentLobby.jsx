@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   assignRandomLabelsToAllAiTeams,
   getTournamentSessions,
@@ -14,12 +14,15 @@ const ROLES = ['retailer', 'wholesaler', 'distributor', 'factory'];
 
 export function TournamentLobby({ tournament, player, session, onGameStart, isCreator }) {
   const [teams, setTeams] = useState([]);
+  /** Keeps team name text while typing; server polls would otherwise overwrite controlled inputs. */
+  const [teamLabelDraftBySessionId, setTeamLabelDraftBySessionId] = useState({});
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
   const [sessionIds, setSessionIds] = useState([]);
   const [loadError, setLoadError] = useState(null);
 
-  const loadTeams = async () => {
+  const loadTeams = useCallback(async () => {
+    if (!tournament?.id) return;
     try {
       const sessions = await getTournamentSessions(tournament.id);
       const teamsData = await Promise.all(
@@ -37,12 +40,14 @@ export function TournamentLobby({ tournament, player, session, onGameStart, isCr
     } finally {
       setLoading(false);
     }
-  };
+  }, [tournament]);
 
   useEffect(() => {
     if (!tournament?.id) return;
-    loadTeams();
-  }, [tournament?.id]);
+    queueMicrotask(() => {
+      void loadTeams();
+    });
+  }, [tournament?.id, loadTeams]);
 
   useEffect(() => {
     if (!tournament?.id) return;
@@ -71,7 +76,7 @@ export function TournamentLobby({ tournament, player, session, onGameStart, isCr
 
   if (!tournament?.id) {
     return (
-      <div className="ma-welcome">
+      <div className="ma-welcome ma-shell-enter">
         <div className="ma-welcome-body" style={{ textAlign: 'center', padding: '2rem', color: '#6b7280' }}>
           Loading tournament…
         </div>
@@ -108,7 +113,7 @@ export function TournamentLobby({ tournament, player, session, onGameStart, isCr
   };
 
   return (
-    <div className="ma-welcome">
+    <div className="ma-welcome ma-shell-enter">
       <header className="ma-welcome-hero">
         <h1>Beer Game · Tournament</h1>
         <p>
@@ -247,18 +252,33 @@ export function TournamentLobby({ tournament, player, session, onGameStart, isCr
                           type="text"
                           maxLength={48}
                           placeholder="e.g. Thirsty Trucks"
-                          value={team.team_label ?? ''}
+                          value={
+                            teamLabelDraftBySessionId[team.id] !== undefined
+                              ? teamLabelDraftBySessionId[team.id]
+                              : (team.team_label ?? '')
+                          }
                           onChange={e => {
                             const v = e.target.value;
-                            setTeams(prev =>
-                              prev.map(x => (x.id === team.id ? { ...x, team_label: v } : x))
-                            );
+                            setTeamLabelDraftBySessionId(prev => ({ ...prev, [team.id]: v }));
                           }}
                           onBlur={async e => {
-                            const v = e.target.value.trim();
+                            const raw = teamLabelDraftBySessionId[team.id] !== undefined
+                              ? teamLabelDraftBySessionId[team.id]
+                              : e.target.value;
+                            const v = String(raw ?? '').trim();
                             try {
                               await updateSession(team.id, { team_label: v || null });
                               setLoadError(null);
+                              setTeamLabelDraftBySessionId(prev => {
+                                const next = { ...prev };
+                                delete next[team.id];
+                                return next;
+                              });
+                              setTeams(prev =>
+                                prev.map(x =>
+                                  x.id === team.id ? { ...x, team_label: v || null } : x
+                                )
+                              );
                             } catch (err) {
                               setLoadError(
                                 err?.message ||

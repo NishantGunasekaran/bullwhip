@@ -112,10 +112,23 @@ export const AI_STYLE_OPTIONS = [
   },
 ];
 
+const demandOptionById = new Map(DEMAND_PROFILE_OPTIONS.map(o => [o.id, o]));
+const aiOptionById = new Map(AI_STYLE_OPTIONS.map(o => [o.id, o]));
+
+/** Single lookup for demand profile UI row (avoids repeated .find in render). */
+export function getDemandProfileOption(id) {
+  return demandOptionById.get(id);
+}
+
+/** Single lookup for AI style UI row. */
+export function getAiStyleOption(id) {
+  return aiOptionById.get(id);
+}
+
 export function labelForDemandProfile(id) {
-  return DEMAND_PROFILE_OPTIONS.find(o => o.id === id)?.label ?? id;
+  return getDemandProfileOption(id)?.label ?? id;
 }
 
 export function labelForAiStyle(id) {
-  return AI_STYLE_OPTIONS.find(o => o.id === id)?.label ?? id;
+  return getAiStyleOption(id)?.label ?? id;
 }

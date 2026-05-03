@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { useGame } from './useGame';
-import { TIERS } from './gameState';
+import { TIERS, TOTAL_ROUNDS } from './gameState';
 import { getDemandForRound, hashStringToSeed } from './demandCurve';
+import { labelForAiStyle, labelForDemandProfile } from './demandProfilesMeta';
 import { WelcomeScreen } from './WelcomeScreen';
 import { GameOverScreen } from './GameOverScreen';
 import { MultiplayerLobby } from './MultiplayerLobby';
@@ -95,7 +96,31 @@ function App() {
     gameConfig?.tournament?.aiStyle,
   ]);
 
-  const simOptions = isTournament ? tournamentSimOptions : null;
+  const soloSimOptions = useMemo(() => {
+    if (!isSolo || !gameConfig) return null;
+    const seed =
+      typeof gameConfig.demandSeed === 'number' && Number.isFinite(gameConfig.demandSeed)
+        ? gameConfig.demandSeed
+        : hashStringToSeed(
+            `${gameConfig.playerName ?? ''}|${gameConfig.playerRole ?? ''}|solo`
+          );
+    return {
+      demandProfile: gameConfig.demandProfile ?? gameConfig.demand_profile ?? 'classic',
+      demandSeed: seed,
+      aiStyle: gameConfig.aiStyle ?? gameConfig.ai_style ?? 'standard',
+    };
+  }, [
+    isSolo,
+    gameConfig?.demandProfile,
+    gameConfig?.demand_profile,
+    gameConfig?.demandSeed,
+    gameConfig?.aiStyle,
+    gameConfig?.ai_style,
+    gameConfig?.playerName,
+    gameConfig?.playerRole,
+  ]);
+
+  const simOptions = isTournament ? tournamentSimOptions : soloSimOptions;
 
   const {
     game,
@@ -111,9 +136,13 @@ function App() {
   } = useGame(isSolo ? playerRole : null, simOptions);
 
   const playerRoleRef = useRef(playerRole);
-  playerRoleRef.current = playerRole;
   const isInstructorRef = useRef(isInstructor);
-  isInstructorRef.current = isInstructor;
+  useLayoutEffect(() => {
+    playerRoleRef.current = playerRole;
+  }, [playerRole]);
+  useLayoutEffect(() => {
+    isInstructorRef.current = isInstructor;
+  }, [isInstructor]);
 
   // ── Load and track real team progress for instructor ────────
   useEffect(() => {
@@ -157,7 +186,7 @@ function App() {
     if (!hasAllAI) return;
 
     tournamentAutoRunStartedRef.current = true;
-    setAutoRunning(true);
+    queueMicrotask(() => setAutoRunning(true));
     const t = gameConfig?.tournament;
     const runOpts = t?.id
       ? {
@@ -299,7 +328,7 @@ function App() {
     const tid = gameConfig.tournament?.id;
     if (tid == null || tid === '') {
       return (
-        <div className="ma-welcome" style={{ padding: '2rem', textAlign: 'center' }}>
+        <div className="ma-welcome ma-shell-enter" style={{ padding: '2rem', textAlign: 'center' }}>
           <p style={{ marginBottom: '1rem', color: '#6b7280' }}>
             Tournament data is missing. Please go back and try again.
           </p>
@@ -366,7 +395,7 @@ function App() {
     );
   }
 
-  const displayRound = game.round + 1;
+  const displayRound = Math.min(game.round + 1, TOTAL_ROUNDS);
   const lastDemand = game.round > 0 ? game.demandHistory[game.round - 1] : null;
   const nextDemand = getDemandForRound(
     game.round + 1,
@@ -379,7 +408,7 @@ function App() {
       teamProgress.length > 0 && teamProgress.every(t => t.status === 'finished');
 
     return (
-      <div className="ma-play">
+      <div className="ma-play ma-shell-enter">
         <header className="ma-topbar">
           <div className="ma-brand">
             <span className="ma-logo">Beer Game</span>
@@ -409,7 +438,8 @@ function App() {
           {/* Bug 2 fix: real round progress from DB */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '2rem' }}>
             {teamProgress.map(team => {
-              const pct = Math.min(100, Math.round((team.round / 20) * 100));
+              const displayRound = Math.min(team.round ?? 0, TOTAL_ROUNDS);
+              const pct = Math.min(100, Math.round((displayRound / TOTAL_ROUNDS) * 100));
               return (
                 <div
                   key={team.id}
@@ -429,9 +459,9 @@ function App() {
                     </div>
                     <div style={{ fontSize: '13px', color: '#6b7280' }}>
                       {team.status === 'finished'
-                        ? '✅ Finished'
+                        ? `✅ Finished · Week ${TOTAL_ROUNDS}`
                         : team.status === 'playing'
-                          ? `Week ${team.round} / 20`
+                          ? `Week ${displayRound} / ${TOTAL_ROUNDS}`
                           : '⏸️ Not started'}
                     </div>
                   </div>
@@ -456,7 +486,7 @@ function App() {
                   }}>
                     <span>Start</span>
                     <span>{pct}% complete</span>
-                    <span>Week 20</span>
+                    <span>Week {TOTAL_ROUNDS}</span>
                   </div>
                 </div>
               );
@@ -500,7 +530,7 @@ function App() {
   const isSingleCard = tiersToRender.length === 1;
 
   return (
-    <div className="ma-play">
+    <div className="ma-play ma-shell-enter">
       <header className="ma-topbar">
         <div className="ma-brand">
           <span className="ma-logo">Beer Game</span>
@@ -515,7 +545,7 @@ function App() {
           </span>
         </div>
         <div className="ma-week-pill">
-          Week {displayRound} <span>/ 20</span>
+          Week {displayRound} <span>/ {TOTAL_ROUNDS}</span>
         </div>
         <div className="ma-topbar-stats">
           <div className="ma-topbar-stat">
@@ -540,7 +570,10 @@ function App() {
           then <strong>place your order</strong> upstream.
           {isSolo && (
             <span style={{ color: 'var(--ma-amber)', marginLeft: '8px' }}>
-              🤖 AI managing other tiers.
+              🤖 AI managing other tiers ({labelForAiStyle(gameConfig?.aiStyle ?? gameConfig?.ai_style ?? 'standard')}
+              ). Demand: {labelForDemandProfile(
+                gameConfig?.demandProfile ?? gameConfig?.demand_profile ?? 'classic'
+              )}.
             </span>
           )}
           {isTournament && playerRole && (
@@ -673,8 +706,14 @@ function App() {
 
                   <div className="ma-echelon-body">
                     <div className="ma-board-cards">
-                      <div className="ma-board-card ma-board-card--order-in">
-                        <div className="ma-board-card-cap">Customer order</div>
+                      <div
+                        key={`in-${tierName}-${game.round}`}
+                        className="ma-board-card ma-board-card--order-in ma-board-card--motion-in"
+                      >
+                        <div className="ma-board-card-cap">
+                          <span className="ma-board-card-cap-icon" aria-hidden>📥</span>
+                          <span>Customer order</span>
+                        </div>
                         <div className="ma-board-card-val">{customerOrderThisWeek}</div>
                         <div className="ma-board-card-hint">
                           {tierName === 'retailer'
@@ -683,14 +722,26 @@ function App() {
                         </div>
                       </div>
 
-                      <div className="ma-board-card ma-board-card--order-out">
-                        <div className="ma-board-card-cap">Outgoing order</div>
+                      <div
+                        key={`out-${tierName}-${game.round}`}
+                        className="ma-board-card ma-board-card--order-out ma-board-card--motion-out"
+                      >
+                        <div className="ma-board-card-cap">
+                          <span className="ma-board-card-cap-icon" aria-hidden>📤</span>
+                          <span>Outgoing order</span>
+                        </div>
                         <div className="ma-board-card-val">{tier.lastOrderPlaced}</div>
                         <div className="ma-board-card-hint">{outgoingOrderLabel}</div>
                       </div>
 
-                      <div className="ma-board-card ma-board-card--stock">
-                        <div className="ma-board-card-cap">Current stock</div>
+                      <div
+                        key={`stock-${tierName}-${game.round}`}
+                        className="ma-board-card ma-board-card--stock ma-board-card--motion-stock"
+                      >
+                        <div className="ma-board-card-cap">
+                          <span className="ma-board-card-cap-icon" aria-hidden>📦</span>
+                          <span>Current stock</span>
+                        </div>
                         <div className="ma-stock-inline">
                           <div>
                             <span className="ma-stock-inline-label">On hand</span>
@@ -713,11 +764,18 @@ function App() {
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                               <span>Prev stock</span><strong>{prevInventory}</strong>
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--ma-ok)' }}>
-                              <span>+ Received</span><strong>+{tier.lastOrderReceived}</strong>
+                            <div className="ma-stock-flow-row ma-stock-flow-row--in">
+                              <span>
+                                <span className="ma-stock-flow-ico" aria-hidden>⬇️</span>
+                                + Received
+                              </span>
+                              <strong>+{tier.lastOrderReceived}</strong>
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--ma-bad)' }}>
-                              <span>− Shipped</span>
+                            <div className="ma-stock-flow-row ma-stock-flow-row--out">
+                              <span>
+                                <span className="ma-stock-flow-ico" aria-hidden>⬆️</span>
+                                − Shipped
+                              </span>
                               <strong>−{tier.shipmentHistory?.[game.round - 1] ?? 0}</strong>
                             </div>
                             <div style={{
@@ -731,8 +789,14 @@ function App() {
                         )}
                       </div>
 
-                      <div className="ma-board-card ma-board-card--delivery">
-                        <div className="ma-board-card-cap">Incoming delivery</div>
+                      <div
+                        key={`del-${tierName}-${game.round}`}
+                        className="ma-board-card ma-board-card--delivery ma-board-card--motion-deliver"
+                      >
+                        <div className="ma-board-card-cap">
+                          <span className="ma-board-card-cap-icon" aria-hidden>🚚</span>
+                          <span>Incoming delivery</span>
+                        </div>
                         <div className="ma-delivery-row">
                           <div className="ma-delivery-slot">
                             <span className="ma-delivery-slot-label">Next week</span>
@@ -753,7 +817,10 @@ function App() {
 
                     {showOrderInput && (
                       <div className="ma-board-card ma-board-card--place-order ma-order-zone">
-                        <div className="ma-board-card-cap">Order</div>
+                        <div className="ma-board-card-cap">
+                          <span className="ma-board-card-cap-icon" aria-hidden>📝</span>
+                          <span>Order</span>
+                        </div>
                         <label className="ma-order-label" htmlFor={`order-${tierName}`}>
                           Units to order → {ORDER_TO[tierName]}
                         </label>

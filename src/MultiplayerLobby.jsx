@@ -109,7 +109,7 @@ export function MultiplayerLobby({ session, player, onGameStart, onJoinAsPlayer,
 
   if (loading) {
     return (
-      <div className="ma-welcome">
+      <div className="ma-welcome ma-shell-enter">
         <div className="ma-welcome-body">
           <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--ma-muted)' }}>
             Loading session...
@@ -120,7 +120,7 @@ export function MultiplayerLobby({ session, player, onGameStart, onJoinAsPlayer,
   }
 
   return (
-    <div className="ma-welcome">
+    <div className="ma-welcome ma-shell-enter">
       <header className="ma-welcome-hero">
         <h1>Beer Game</h1>
         <p>

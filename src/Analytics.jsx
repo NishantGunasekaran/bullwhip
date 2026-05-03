@@ -35,7 +35,6 @@ export function Analytics({ game, totalSystemCost }) {
     const orders = tier.orderHistory || [];
     const inv = tier.inventoryHistory || [];
     const bl = tier.backlogHistory || [];
-    const cost = tier.costHistory || [];
 
     return {
       name: t,
@@ -65,15 +64,7 @@ export function Analytics({ game, totalSystemCost }) {
   const totalBacklogPerRound = Array.from({ length: rounds }, (_, i) =>
     TIERS.reduce((sum, t) => sum + (game.tiers[t].backlogHistory[i] || 0), 0)
   );
-  const totalInvPerRound = Array.from({ length: rounds }, (_, i) =>
-    TIERS.reduce((sum, t) => sum + (game.tiers[t].inventoryHistory[i] || 0), 0)
-  );
-  const totalOrderPerRound = Array.from({ length: rounds }, (_, i) =>
-    TIERS.reduce((sum, t) => sum + (game.tiers[t].orderHistory[i] || 0), 0)
-  );
-
   const peakBacklogRound = totalBacklogPerRound.indexOf(max(totalBacklogPerRound)) + 1;
-  const peakInvRound = totalInvPerRound.indexOf(max(totalInvPerRound)) + 1;
   const demandJumpRound = game.demandHistory.findIndex(
     (d, i) => i > 0 && d > game.demandHistory[i - 1]
   ) + 1;

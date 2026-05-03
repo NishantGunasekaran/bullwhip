@@ -10,6 +10,7 @@ import {
   buildSessionCsvWithAnalytics,
   totalSystemCostFromGame,
 } from './analyticsMetrics';
+import { TOTAL_ROUNDS } from './gameState';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 
@@ -30,16 +31,8 @@ export function GameOverScreen({
   const [sessionGame, setSessionGame] = useState(null);
   const [sessionGameLoading, setSessionGameLoading] = useState(false);
 
-  const selectedTeamRow = useMemo(
-    () => tournamentRows.find(r => r.sessionId === selectedSessionId),
-    [tournamentRows, selectedSessionId]
-  );
-
   useEffect(() => {
-    if (!tournament?.id) {
-      setTournamentRows([]);
-      return;
-    }
+    if (!tournament?.id) return;
     let cancelled = false;
     let pollTimer = null;
     let realtimeSubs = [];
@@ -58,7 +51,7 @@ export function GameOverScreen({
           }
         });
 
-    setTournamentCompareLoading(true);
+    queueMicrotask(() => setTournamentCompareLoading(true));
     refresh().finally(() => {
       if (!cancelled) setTournamentCompareLoading(false);
     });
@@ -83,14 +76,26 @@ export function GameOverScreen({
     };
   }, [tournament?.id]);
 
+  const rowsForCompare = useMemo(
+    () => (tournament?.id ? tournamentRows : []),
+    [tournament?.id, tournamentRows]
+  );
+
+  const selectedTeamRow = useMemo(
+    () => rowsForCompare.find(r => r.sessionId === selectedSessionId),
+    [rowsForCompare, selectedSessionId]
+  );
+
   useEffect(() => {
     if (!tournament?.id || tournamentRows.length === 0) return;
-    setSelectedSessionId(prev => {
-      if (prev && tournamentRows.some(r => r.sessionId === prev)) return prev;
-      if (mySessionId && tournamentRows.some(r => r.sessionId === mySessionId)) {
-        return mySessionId;
-      }
-      return tournamentRows[0].sessionId;
+    queueMicrotask(() => {
+      setSelectedSessionId(prev => {
+        if (prev && tournamentRows.some(r => r.sessionId === prev)) return prev;
+        if (mySessionId && tournamentRows.some(r => r.sessionId === mySessionId)) {
+          return mySessionId;
+        }
+        return tournamentRows[0].sessionId;
+      });
     });
   }, [tournament?.id, tournamentRows, mySessionId]);
 
@@ -99,13 +104,17 @@ export function GameOverScreen({
     let cancelled = false;
 
     if (mySessionId && selectedSessionId === mySessionId) {
-      setSessionGame(game);
-      setSessionGameLoading(false);
+      queueMicrotask(() => {
+        setSessionGame(game);
+        setSessionGameLoading(false);
+      });
       return undefined;
     }
 
-    setSessionGame(null);
-    setSessionGameLoading(true);
+    queueMicrotask(() => {
+      setSessionGame(null);
+      setSessionGameLoading(true);
+    });
     (async () => {
       try {
         const g = await getLatestGameState(selectedSessionId);
@@ -130,8 +139,13 @@ export function GameOverScreen({
   }, [tournament, sessionGame, selectedSessionId, mySessionId, totalSystemCost, game]);
 
   const bestTournamentCost = useMemo(
-    () => tournamentRows.find(t => t.totalCost > 0)?.totalCost ?? 0,
-    [tournamentRows]
+    () => rowsForCompare.find(t => t.totalCost > 0)?.totalCost ?? 0,
+    [rowsForCompare]
+  );
+
+  const maxTournamentCost = useMemo(
+    () => Math.max(0, ...rowsForCompare.map(t => (t.totalCost > 0 ? t.totalCost : 0))),
+    [rowsForCompare]
   );
 
   const exportToCSV = () => {
@@ -168,7 +182,7 @@ export function GameOverScreen({
   };
 
   return (
-    <div className="ma-over">
+    <div className="ma-over ma-shell-enter">
       <header className="ma-topbar">
         <div className="ma-brand">
           <span className="ma-logo">Beer Game</span>
@@ -179,7 +193,7 @@ export function GameOverScreen({
           </span>
         </div>
         <div className="ma-week-pill">
-          20 <span>/ 20 weeks</span>
+          {TOTAL_ROUNDS} <span>/ {TOTAL_ROUNDS} weeks</span>
         </div>
         <div className="ma-topbar-stats">
           <div className="ma-topbar-stat ma-topbar-stat--cost">
@@ -204,7 +218,7 @@ export function GameOverScreen({
               : '—'}
           </div>
           <p className="ma-over-sub">
-            Total system cost · 20 weeks
+            Total system cost · {TOTAL_ROUNDS} weeks
             {tournament && selectedTeamRow && (
               <span>
                 {' · Team '}{selectedTeamRow.teamNumber}
@@ -214,14 +228,7 @@ export function GameOverScreen({
           </p>
 
           {playerRole && (
-            <div style={{
-              marginTop: '1rem',
-              display: 'inline-block',
-              background: 'rgba(255,255,255,0.15)',
-              borderRadius: '8px',
-              padding: '6px 16px',
-              fontSize: '14px'
-            }}>
+            <div className="ma-over-role-badge">
               You played as <strong style={{ textTransform: 'capitalize' }}>{playerRole}</strong>
             </div>
           )}
@@ -246,7 +253,7 @@ export function GameOverScreen({
                 {tournamentCompareError}
               </p>
             )}
-            {!tournamentCompareLoading && !tournamentCompareError && tournamentRows.length > 0 && (
+            {!tournamentCompareLoading && !tournamentCompareError && rowsForCompare.length > 0 && (
               <div style={{ overflowX: 'auto' }}>
                 <table className="ma-over-tournament-table">
                   <thead>
@@ -258,7 +265,7 @@ export function GameOverScreen({
                     </tr>
                   </thead>
                   <tbody>
-                    {tournamentRows.map((row, idx) => {
+                    {rowsForCompare.map((row, idx) => {
                       const isYou = mySessionId != null && row.sessionId === mySessionId;
                       const vsBest =
                         bestTournamentCost > 0 && row.totalCost > 0
@@ -267,8 +274,8 @@ export function GameOverScreen({
                             : `+${Math.round((row.totalCost / bestTournamentCost - 1) * 100)}%`
                           : '—';
                       const barPct =
-                        bestTournamentCost > 0 && row.totalCost > 0
-                          ? Math.min(100, Math.round((bestTournamentCost / row.totalCost) * 100))
+                        maxTournamentCost > 0 && row.totalCost > 0
+                          ? Math.min(100, Math.round((row.totalCost / maxTournamentCost) * 100))
                           : 0;
                       const rankDisplay =
                         row.totalCost > 0
@@ -292,10 +299,21 @@ export function GameOverScreen({
                             )}
                             <div className="ma-over-tournament-meta">
                               {row.status === 'finished' ? 'Finished' : row.status}
-                              {row.round > 0 && ` · Week ${row.round}`}
+                              {(row.status === 'finished' || row.round > 0) && (
+                                <>
+                                  {' · Week '}
+                                  {row.status === 'finished'
+                                    ? TOTAL_ROUNDS
+                                    : Math.min(row.round, TOTAL_ROUNDS)}
+                                </>
+                              )}
                             </div>
                             {row.totalCost > 0 && (
-                              <div className="ma-over-tournament-bar" aria-hidden>
+                              <div
+                                className="ma-over-tournament-bar"
+                                role="img"
+                                aria-label={`Cost bar ${barPct}% of highest in this tournament`}
+                              >
                                 <div
                                   className="ma-over-tournament-bar-fill"
                                   style={{ width: `${barPct}%` }}
@@ -314,13 +332,18 @@ export function GameOverScreen({
                     })}
                   </tbody>
                 </table>
+                {rowsForCompare.filter(r => r.totalCost > 0).length > 1 && (
+                  <p className="ma-over-tournament-bar-note">
+                    Bar length is proportional to system cost (longer = higher cost in this tournament).
+                  </p>
+                )}
               </div>
             )}
           </section>
         )}
 
         {/* Tournament: which team's analytics / charts / CSV */}
-        {tournament && tournamentRows.length > 0 && (
+        {tournament && rowsForCompare.length > 0 && (
           <div className="ma-over-team-picker">
             <label htmlFor="ma-team-analytics">View analytics & export for</label>
             <select
@@ -329,7 +352,7 @@ export function GameOverScreen({
               value={selectedSessionId ?? ''}
               onChange={e => setSelectedSessionId(e.target.value || null)}
             >
-              {tournamentRows.map(row => (
+              {rowsForCompare.map(row => (
                 <option key={row.sessionId} value={row.sessionId}>
                   Team {row.teamNumber}
                   {row.teamLabel ? ` — ${row.teamLabel}` : ''}
@@ -348,15 +371,8 @@ export function GameOverScreen({
         <div style={{ marginBottom: '1.5rem' }}>
           <button
             type="button"
+            className={`ma-over-analytics-btn${showData ? ' ma-over-analytics-btn--open' : ''}`}
             onClick={() => setShowData(v => !v)}
-            style={{
-              width: '100%', padding: '14px',
-              fontSize: '15px', fontWeight: 600,
-              background: showData ? '#1c2d4a' : 'white',
-              color: showData ? 'white' : '#1c2d4a',
-              border: '2px solid #1c2d4a',
-              borderRadius: '10px', cursor: 'pointer'
-            }}
           >
             {showData ? '▲ Hide detailed analytics' : '▼ Show detailed analytics'}
           </button>

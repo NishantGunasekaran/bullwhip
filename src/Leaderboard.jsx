@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   getTournamentLeaderboard,
   getTournamentSessions,
   subscribeToGameRounds,
 } from './sessionService';
+import { TOTAL_ROUNDS } from './gameState';
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 
@@ -13,16 +14,18 @@ export function Leaderboard({ tournament, onClose }) {
   const [lastUpdated, setLastUpdated] = useState(null);
   const sessionIdsRef = useRef([]);
 
-  const loadLeaderboard = async () => {
+  const loadLeaderboard = useCallback(async () => {
     const data = await getTournamentLeaderboard(tournament.id);
     setLeaderboard(data);
     setLastUpdated(new Date());
     setLoading(false);
-  };
+  }, [tournament.id]);
 
   useEffect(() => {
-    loadLeaderboard();
-  }, [tournament.id]);
+    queueMicrotask(() => {
+      void loadLeaderboard();
+    });
+  }, [tournament.id, loadLeaderboard]);
 
   // Bug 2 fix: subscribe to game_rounds for ALL tournament sessions
   // This fires whenever any team completes a round and saves state
@@ -45,13 +48,13 @@ export function Leaderboard({ tournament, onClose }) {
     setupSubscriptions().then(fn => { cleanup = fn || (() => {}); });
 
     return () => cleanup();
-  }, [tournament.id]);
+  }, [tournament.id, loadLeaderboard]);
 
   // Fallback: poll every 8 seconds
   useEffect(() => {
     const interval = setInterval(loadLeaderboard, 8000);
     return () => clearInterval(interval);
-  }, [tournament.id]);
+  }, [tournament.id, loadLeaderboard]);
 
   const allFinished = leaderboard.length > 0 && leaderboard.every(t => t.status === 'finished');
   const lowestCost = leaderboard.find(t => t.totalCost > 0)?.totalCost || 0;
@@ -153,9 +156,9 @@ export function Leaderboard({ tournament, onClose }) {
                         </div>
                         <div style={{ fontSize: '11px', color: '#6b7280', marginTop: '2px' }}>
                           {team.status === 'finished'
-                            ? '✅ Finished'
+                            ? `✅ Finished · Week ${TOTAL_ROUNDS}`
                             : team.status === 'playing'
-                              ? `⏳ Week ${team.round}/20`
+                              ? `⏳ Week ${Math.min(team.round ?? 0, TOTAL_ROUNDS)}/${TOTAL_ROUNDS}`
                               : '⏸️ Not started yet'}
                         </div>
                       </div>
